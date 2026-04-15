@@ -9,6 +9,21 @@ export function useQueue() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const professionalsCountQuery = useQuery({
+    queryKey: ["professionals_count", salonId],
+    queryFn: async () => {
+      if (!salonId) return 1;
+      const { count } = await supabase
+        .from("professionals")
+        .select("id", { count: "exact", head: true })
+        .eq("salon_id", salonId)
+        .eq("is_active", true);
+      return count || 1;
+    },
+    enabled: !!salonId,
+    staleTime: 1000 * 60 * 30,
+  });
+
   const query = useQuery({
     queryKey: ["queue", salonId],
     queryFn: async () => {
@@ -200,9 +215,8 @@ export function useQueue() {
 
   const entries = query.data || [];
   const activeEntries = entries.filter((e) => ["waiting", "checked_in"].includes(e.status));
-  const inServiceCount = entries.filter((e) => e.status === "in_service").length;
   const totalMinutes = activeEntries.reduce((sum, e) => sum + (e.service?.duration_minutes || 45), 0);
-  const activeProfessionals = Math.max(inServiceCount, 1);
+  const activeProfessionals = professionalsCountQuery.data || 1;
   const estimatedMinutes = Math.ceil(totalMinutes / activeProfessionals);
 
   const stats: QueueStats = {

@@ -63,6 +63,21 @@ export function usePublicQueue() {
     refetchInterval: 15000,
   });
 
+  const professionalsQuery = useQuery({
+    queryKey: ["public_professionals_count", salonId],
+    queryFn: async () => {
+      if (!salonId) return 1;
+      const { count } = await supabase
+        .from("professionals")
+        .select("id", { count: "exact", head: true })
+        .eq("salon_id", salonId)
+        .eq("is_active", true);
+      return count || 1;
+    },
+    enabled: !!salonId,
+    staleTime: 1000 * 60 * 30,
+  });
+
   const servicesQuery = useQuery({
     queryKey: ["public_services", salonId],
     queryFn: async () => {
@@ -83,9 +98,8 @@ export function usePublicQueue() {
 
   const entries = queueQuery.data || [];
   const activeEntries = entries.filter((e) => ["waiting", "checked_in"].includes(e.status));
-  const inServiceCount = entries.filter((e) => e.status === "in_service").length;
   const totalMinutes = activeEntries.reduce((sum, e) => sum + (e.service?.duration_minutes || 45), 0);
-  const activeProfessionals = Math.max(inServiceCount, 1);
+  const activeProfessionals = professionalsQuery.data || 1;
   const estimatedMinutes = Math.ceil(totalMinutes / activeProfessionals);
 
   const stats: QueueStats = {
