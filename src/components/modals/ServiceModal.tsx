@@ -38,6 +38,7 @@ export function ServiceModal({ open, onOpenChange, service, onSubmit, isLoading 
     commission_percent: 0,
     category: "",
     is_active: true,
+    queue_enabled: false,
     send_return_reminder: false,
     return_reminder_days: 30,
     return_reminder_message: "",
@@ -75,6 +76,7 @@ export function ServiceModal({ open, onOpenChange, service, onSubmit, isLoading 
         commission_percent: Number(service.commission_percent) || 0,
         category: service.category || "",
         is_active: service.is_active,
+        queue_enabled: service.queue_enabled || false,
         send_return_reminder: service.send_return_reminder || false,
         return_reminder_days: service.return_reminder_days || 30,
         return_reminder_message: service.return_reminder_message || "",
@@ -88,6 +90,7 @@ export function ServiceModal({ open, onOpenChange, service, onSubmit, isLoading 
         commission_percent: 0,
         category: "",
         is_active: true,
+        queue_enabled: false,
         send_return_reminder: false,
         return_reminder_days: 30,
         return_reminder_message: "",
@@ -224,6 +227,17 @@ export function ServiceModal({ open, onOpenChange, service, onSubmit, isLoading 
                   id="is_active"
                   checked={formData.is_active}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="queue_enabled">Disponível na Fila Online</Label>
+                  <p className="text-xs text-muted-foreground">Aparece na página pública para compra online</p>
+                </div>
+                <Switch
+                  id="queue_enabled"
+                  checked={formData.queue_enabled}
+                  onCheckedChange={(checked) => setFormData({ ...formData, queue_enabled: checked })}
                 />
               </div>
 

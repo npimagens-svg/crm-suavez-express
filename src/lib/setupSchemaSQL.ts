@@ -116,6 +116,7 @@ CREATE TABLE public.services (
   commission_percent NUMERIC DEFAULT 0,
   category TEXT,
   is_active BOOLEAN DEFAULT true,
+  queue_enabled BOOLEAN NOT NULL DEFAULT false,
   send_return_reminder BOOLEAN NOT NULL DEFAULT false,
   return_reminder_days INTEGER DEFAULT 30,
   return_reminder_message TEXT,

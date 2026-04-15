@@ -7,19 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Users, Clock, Bell } from "lucide-react";
-import { useQueue } from "@/hooks/useQueue";
-import { useQueueSettings } from "@/hooks/useQueueSettings";
-import { useQueueLeads } from "@/hooks/useQueueLeads";
-import { useQueueRealtime } from "@/hooks/useQueueRealtime";
+import { usePublicQueue } from "@/hooks/usePublicQueue";
 import { useToast } from "@/hooks/use-toast";
 
 export default function FilaPublica() {
   const navigate = useNavigate();
-  const { stats } = useQueue();
-  const { settings } = useQueueSettings();
-  const { addLead } = useQueueLeads();
+  const { stats, settings, addLead } = usePublicQueue();
   const { toast } = useToast();
-  useQueueRealtime();
 
   const [leadModalOpen, setLeadModalOpen] = useState(false);
   const [leadName, setLeadName] = useState("");
@@ -50,7 +44,7 @@ export default function FilaPublica() {
     <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-zinc-800 flex flex-col items-center justify-center p-4">
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-bold text-white">NP Hair Express</h1>
-        <p className="text-zinc-400 mt-1">Salao sem agendamento</p>
+        <p className="text-zinc-400 mt-1">Salão sem agendamento</p>
       </div>
 
       <Card className="w-full max-w-sm mb-6">
