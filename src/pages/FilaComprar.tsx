@@ -62,42 +62,48 @@ export default function FilaComprar() {
       toast({ title: "CPF inválido", variant: "destructive" });
       return;
     }
+    // Validation passed - go to payment (don't create queue entry yet)
+    setStep("payment");
+  };
+
+  const handlePaymentConfirmed = async (paymentId: string) => {
     try {
+      // Only NOW create the queue entry, after payment is confirmed
       const entry = await addToQueue({
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
         customer_email: customerEmail.trim() || undefined,
         service_id: selectedServiceId,
         notify_minutes_before: parseInt(notifyMinutes),
+        payment_id: paymentId,
       });
+
       setQueueEntryId(entry.id);
       setQueuePosition(entry.position);
-      setStep("payment");
+
+      // Mark as confirmed
+      await supabase
+        .from("queue_entries")
+        .update({ payment_status: "confirmed", updated_at: new Date().toISOString() })
+        .eq("id", entry.id);
+
+      const trackingUrl = `${SITE_URL}/fila/acompanhar/${entry.id}`;
+
+      await notifyQueueEntry(effectiveSalonId, {
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        customer_name: customerName,
+      }, "entered", { position: entry.position, trackingUrl });
+
+      await notifyReception(effectiveSalonId,
+        "Nova cliente na fila!",
+        `${customerName} comprou ${selectedService?.name} e entrou na fila (posição ${entry.position}).`
+      );
+
+      setStep("confirmation");
     } catch {
-      toast({ title: "Erro ao entrar na fila", variant: "destructive" });
+      toast({ title: "Erro ao entrar na fila após pagamento", variant: "destructive" });
     }
-  };
-
-  const handlePaymentConfirmed = async (paymentId: string) => {
-    await supabase
-      .from("queue_entries")
-      .update({ payment_id: paymentId, payment_status: "confirmed", updated_at: new Date().toISOString() })
-      .eq("id", queueEntryId);
-
-    const trackingUrl = `${SITE_URL}/fila/acompanhar/${queueEntryId}`;
-
-    await notifyQueueEntry(effectiveSalonId, {
-      customer_phone: customerPhone,
-      customer_email: customerEmail || null,
-      customer_name: customerName,
-    }, "entered", { position: queuePosition, trackingUrl });
-
-    await notifyReception(effectiveSalonId,
-      "Nova cliente na fila!",
-      `${customerName} comprou ${selectedService?.name} e entrou na fila (posição ${queuePosition}).`
-    );
-
-    setStep("confirmation");
   };
 
   const fmt = (value: number) =>
@@ -179,7 +185,7 @@ export default function FilaComprar() {
             customerEmail={customerEmail || undefined}
             serviceName={selectedService.name}
             servicePrice={selectedService.price}
-            queueEntryId={queueEntryId}
+            queueEntryId={queueEntryId || `pending_${Date.now()}`}
             onPaymentConfirmed={handlePaymentConfirmed}
             onError={(err) => toast({ title: err, variant: "destructive" })}
           />
