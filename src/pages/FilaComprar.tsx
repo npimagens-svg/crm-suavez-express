@@ -45,6 +45,23 @@ export default function FilaComprar() {
       toast({ title: "Preencha nome, CPF e WhatsApp", variant: "destructive" });
       return;
     }
+    const cpfDigits = customerCpf.replace(/\D/g, "");
+    if (cpfDigits.length !== 11 || /^(\d)\1+$/.test(cpfDigits)) {
+      toast({ title: "CPF inválido", variant: "destructive" });
+      return;
+    }
+    // Validate CPF check digits
+    const calcDigit = (slice: string, factor: number) => {
+      let sum = 0;
+      for (let i = 0; i < slice.length; i++) sum += parseInt(slice[i]) * (factor - i);
+      const rest = sum % 11;
+      return rest < 2 ? 0 : 11 - rest;
+    };
+    if (calcDigit(cpfDigits.slice(0, 9), 10) !== parseInt(cpfDigits[9]) ||
+        calcDigit(cpfDigits.slice(0, 10), 11) !== parseInt(cpfDigits[10])) {
+      toast({ title: "CPF inválido", variant: "destructive" });
+      return;
+    }
     try {
       const entry = await addToQueue({
         customer_name: customerName.trim(),

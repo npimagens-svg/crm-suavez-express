@@ -22,13 +22,24 @@ export interface AsaasPaymentResponse {
 }
 
 async function callAsaasProxy(salonId: string, action: string, data: Record<string, unknown>) {
-  const { data: result, error } = await supabase.functions.invoke("asaas-proxy", {
-    body: { action, salonId, data },
-  });
+  try {
+    const { data: result, error } = await supabase.functions.invoke("asaas-proxy", {
+      body: { action, salonId, data },
+    });
 
-  if (error) throw new Error(error.message || "Erro na comunicacao com Asaas");
-  if (result?.error) throw new Error(result.error);
-  return result;
+    if (error) {
+      // Try to parse error body for detailed message
+      if (typeof error === "object" && error.message) {
+        throw new Error(error.message);
+      }
+      throw new Error("Erro na comunicação com o servidor");
+    }
+    if (result?.error) throw new Error(result.error);
+    return result;
+  } catch (err) {
+    if (err instanceof Error) throw err;
+    throw new Error("Erro inesperado ao processar pagamento");
+  }
 }
 
 export async function createAsaasPayment(
