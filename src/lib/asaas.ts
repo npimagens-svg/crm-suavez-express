@@ -2,7 +2,7 @@ import { supabase } from "@/lib/dynamicSupabaseClient";
 
 // Sandbox: https://sandbox.asaas.com/api/v3
 // Producao: https://api.asaas.com/v3
-const ASAAS_BASE_URL = "https://sandbox.asaas.com/api/v3";
+const ASAAS_BASE_URL = "https://api.asaas.com/v3";
 
 async function getAsaasKey(salonId: string): Promise<string | null> {
   const { data } = await supabase
