@@ -11,6 +11,7 @@ import {
   Settings,
   LayoutDashboard,
   ChevronDown,
+  ListOrdered,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -44,6 +45,7 @@ const mainNavItems = [
 
 const operationItems = [
   { title: "Comandas", url: "/comandas", icon: Receipt },
+  { title: "Fila", url: "/fila-admin", icon: ListOrdered },
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
   { title: "Estoque", url: "/estoque", icon: Package },
 ];
