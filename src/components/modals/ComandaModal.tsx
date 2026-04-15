@@ -1196,7 +1196,14 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
             .reduce((sum, item) => sum + (item.total_price || 0), 0);
 
           if (servicesTotal > 0) {
-            const creditAmount = Math.round(servicesTotal * 0.07 * 100) / 100;
+            // Load cashback percent from system_config
+            const { data: cbConfig } = await supabase
+              .from("system_config")
+              .select("value")
+              .eq("key", "cashback_percent")
+              .maybeSingle();
+            const cashbackPercent = cbConfig?.value ? parseFloat(cbConfig.value) / 100 : 0.07;
+            const creditAmount = Math.round(servicesTotal * cashbackPercent * 100) / 100;
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + 15);
             await supabase.from("client_credits").insert({
@@ -1800,7 +1807,7 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                   <label className="flex items-center gap-2 cursor-pointer">
                     <Checkbox id="enable-cashback" checked={enableCashback} onCheckedChange={(checked) => setEnableCashback(!!checked)} />
                     <Gift className="h-3.5 w-3.5 text-primary" />
-                    Cashback 7%
+                    Cashback
                   </label>
                 )}
                 {difference < -0.01 && comanda?.client_id && (

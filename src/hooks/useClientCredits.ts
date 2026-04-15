@@ -5,7 +5,7 @@ import { addDays, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { sendEmail } from "@/lib/sendEmail";
 
-const LOYALTY_PERCENT = 0.07; // 7%
+let LOYALTY_PERCENT = 0.07; // Default 7%, loaded from system_config
 const LOYALTY_VALIDITY_DAYS = 15;
 const MIN_PURCHASE_AMOUNT = 100;
 
@@ -16,6 +16,16 @@ export function useGenerateLoyaltyCredit() {
   return useMutation({
     mutationFn: async ({ clientId, comandaId, comandaTotal }: { clientId: string; comandaId: string; comandaTotal: number }) => {
       if (!salonId || !clientId || comandaTotal <= 0) return null;
+
+      // Load cashback percent from system_config
+      const { data: configData } = await supabase
+        .from("system_config")
+        .select("value")
+        .eq("key", "cashback_percent")
+        .maybeSingle();
+      if (configData?.value) {
+        LOYALTY_PERCENT = parseFloat(configData.value) / 100;
+      }
 
       const creditAmount = Math.round(comandaTotal * LOYALTY_PERCENT * 100) / 100;
       const expiresAt = addDays(new Date(), LOYALTY_VALIDITY_DAYS).toISOString();

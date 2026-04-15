@@ -167,7 +167,20 @@ export default function Fila() {
             })
             .eq("id", comanda.id);
 
-          // 6. Update caixa totals
+          // 6. Add to agenda for visual tracking
+          await supabase.from("appointments").insert({
+            salon_id: salonId,
+            client_id: clientId,
+            professional_id: professionalId,
+            service_id: selectedEntry.service_id,
+            scheduled_at: new Date().toISOString(),
+            duration_minutes: selectedEntry.service.duration_minutes || 45,
+            status: "in_progress",
+            notes: `Fila online - ${selectedEntry.source === "online" ? "Pagamento online" : "Presencial"}`,
+            price: selectedEntry.service.price,
+          });
+
+          // 7. Update caixa totals
           await updateCaixaTotalsAsync({
             caixaId: openCaixa.id,
             paymentMethod: payMethod,
