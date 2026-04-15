@@ -1,18 +1,5 @@
 import { supabase } from "@/lib/dynamicSupabaseClient";
 
-// Sandbox: https://sandbox.asaas.com/api/v3
-// Producao: https://api.asaas.com/v3
-const ASAAS_BASE_URL = "https://api.asaas.com/v3";
-
-async function getAsaasKey(salonId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from("queue_settings")
-    .select("asaas_api_key")
-    .eq("salon_id", salonId)
-    .single();
-  return data?.asaas_api_key || null;
-}
-
 export interface AsaasPaymentInput {
   customerName: string;
   customerCpfCnpj: string;
@@ -34,48 +21,43 @@ export interface AsaasPaymentResponse {
   };
 }
 
+async function callAsaasProxy(salonId: string, action: string, data: Record<string, unknown>) {
+  const { data: result, error } = await supabase.functions.invoke("asaas-proxy", {
+    body: { action, salonId, data },
+  });
+
+  if (error) throw new Error(error.message || "Erro na comunicacao com Asaas");
+  if (result?.error) throw new Error(result.error);
+  return result;
+}
+
 export async function createAsaasPayment(
   salonId: string,
   input: AsaasPaymentInput
 ): Promise<AsaasPaymentResponse> {
-  const apiKey = await getAsaasKey(salonId);
-  if (!apiKey) throw new Error("Asaas API key not configured");
-
-  const customerRes = await fetch(`${ASAAS_BASE_URL}/customers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", access_token: apiKey },
-    body: JSON.stringify({
-      name: input.customerName,
-      cpfCnpj: input.customerCpfCnpj,
-      phone: input.customerPhone,
-      email: input.customerEmail,
-    }),
+  // Step 1: Create customer
+  const customer = await callAsaasProxy(salonId, "createCustomer", {
+    name: input.customerName,
+    cpfCnpj: input.customerCpfCnpj,
+    phone: input.customerPhone,
+    email: input.customerEmail,
   });
 
-  const customer = await customerRes.json();
-  const customerId = customer.id || customer.errors?.[0]?.description?.match(/cus_\w+/)?.[0];
+  const customerId = customer.id;
   if (!customerId) throw new Error("Falha ao criar cliente no Asaas");
 
-  const paymentRes = await fetch(`${ASAAS_BASE_URL}/payments`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", access_token: apiKey },
-    body: JSON.stringify({
-      customer: customerId,
-      billingType: "PIX",
-      value: input.value,
-      description: input.description,
-      externalReference: input.externalReference,
-      dueDate: new Date().toISOString().split("T")[0],
-    }),
+  // Step 2: Create PIX payment
+  const payment = await callAsaasProxy(salonId, "createPayment", {
+    customerId,
+    value: input.value,
+    description: input.description,
+    externalReference: input.externalReference,
   });
 
-  const payment = await paymentRes.json();
-  if (payment.errors) throw new Error(payment.errors[0]?.description || "Erro no pagamento");
-
-  const pixRes = await fetch(`${ASAAS_BASE_URL}/payments/${payment.id}/pixQrCode`, {
-    headers: { access_token: apiKey },
+  // Step 3: Get PIX QR code
+  const pixData = await callAsaasProxy(salonId, "getPixQrCode", {
+    paymentId: payment.id,
   });
-  const pixData = await pixRes.json();
 
   return {
     id: payment.id,
@@ -86,12 +68,6 @@ export async function createAsaasPayment(
 }
 
 export async function getAsaasPaymentStatus(salonId: string, paymentId: string): Promise<string> {
-  const apiKey = await getAsaasKey(salonId);
-  if (!apiKey) throw new Error("Asaas API key not configured");
-
-  const res = await fetch(`${ASAAS_BASE_URL}/payments/${paymentId}`, {
-    headers: { access_token: apiKey },
-  });
-  const data = await res.json();
-  return data.status;
+  const result = await callAsaasProxy(salonId, "getPaymentStatus", { paymentId });
+  return result.status;
 }
