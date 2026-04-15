@@ -371,6 +371,7 @@ export function useComandas() {
     isLoading: query.isLoading,
     error: query.error,
     createComanda: createMutation.mutate,
+    createComandaAsync: createMutation.mutateAsync,
     updateComanda: updateMutation.mutate,
     closeComanda: closeComandaMutation.mutate,
     reopenComanda: reopenComandaMutation.mutateAsync,

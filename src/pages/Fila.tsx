@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppLayoutNew } from "@/components/layout/AppLayoutNew";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,11 +22,12 @@ import type { QueueEntry } from "@/types/queue";
 const SITE_URL = window.location.origin;
 
 export default function Fila() {
+  const navigate = useNavigate();
   const { salonId } = useAuth();
   const { toast } = useToast();
   const { entries, stats, addToQueue, checkIn, assignProfessional, skip, remove, reorder } = useQueue();
   const { pendingLeads, notifiedLeads, markNotified } = useQueueLeads();
-  const { createComanda } = useComandas();
+  const { createComandaAsync } = useComandas();
   useQueueRealtime();
   useQueueNotificationCheck();
 
@@ -52,8 +54,11 @@ export default function Fila() {
     if (!selectedEntry || !salonId) return;
     try {
       await assignProfessional({ entryId: selectedEntry.id, professionalId });
-      createComanda({ client_id: selectedEntry.customer_id, professional_id: professionalId });
-      toast({ title: "Profissional atribuido e comanda aberta!" });
+      const comanda = await createComandaAsync({ client_id: selectedEntry.customer_id, professional_id: professionalId });
+      toast({ title: "Comanda aberta!" });
+      if (comanda?.id) {
+        navigate(`/comandas?comanda=${comanda.id}&edit=true`);
+      }
     } catch { toast({ title: "Erro ao atribuir", variant: "destructive" }); }
   };
 

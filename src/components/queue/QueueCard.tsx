@@ -62,18 +62,10 @@ export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessio
         {/* Action buttons row */}
         {entry.status !== "in_service" && (
           <div className="flex items-center gap-2 pl-10">
-            {entry.status === "waiting" && entry.source === "online" && (
-              <Button size="sm" variant="outline" className="text-green-700 border-green-300 hover:bg-green-50" onClick={onCheckIn}>
-                <CheckCircle className="h-4 w-4 mr-1" />
-                Check-in
-              </Button>
-            )}
-            {(entry.status === "checked_in" || entry.status === "waiting") && (
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={onAssignProfessional}>
-                <UserPlus className="h-4 w-4 mr-1" />
-                Atender
-              </Button>
-            )}
+            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={onAssignProfessional}>
+              <UserPlus className="h-4 w-4 mr-1" />
+              Atender
+            </Button>
             <Button size="sm" variant="outline" className="text-orange-700 border-orange-300 hover:bg-orange-50" onClick={onSkip}>
               <SkipForward className="h-4 w-4 mr-1" />
               Pular
