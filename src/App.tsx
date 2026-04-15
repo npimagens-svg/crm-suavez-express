@@ -25,6 +25,10 @@ import ClientAlerts from "./pages/ClientAlerts";
 import ClientLoyalty from "./pages/ClientLoyalty";
 import NotFound from "./pages/NotFound";
 import SetupWizard from "./pages/SetupWizard";
+import FilaPublica from "@/pages/FilaPublica";
+import FilaComprar from "@/pages/FilaComprar";
+import FilaAcompanhar from "@/pages/FilaAcompanhar";
+import Fila from "@/pages/Fila";
 
 const queryClient = new QueryClient();
 
@@ -102,6 +106,10 @@ function AppRoutes() {
         <Route path="/relatorios/*" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
         <Route path="/configuracoes" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
         <Route path="/configuracoes/*" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
+        <Route path="/fila-admin" element={<ProtectedRoute><Fila /></ProtectedRoute>} />
+        <Route path="/fila" element={<FilaPublica />} />
+        <Route path="/fila/comprar" element={<FilaComprar />} />
+        <Route path="/fila/acompanhar/:id" element={<FilaAcompanhar />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     );
@@ -161,6 +169,10 @@ function AppRoutes() {
       <Route path="/relatorios/*" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
       <Route path="/configuracoes" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
       <Route path="/configuracoes/*" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
+      <Route path="/fila-admin" element={<ProtectedRoute><Fila /></ProtectedRoute>} />
+      <Route path="/fila" element={<FilaPublica />} />
+      <Route path="/fila/comprar" element={<FilaComprar />} />
+      <Route path="/fila/acompanhar/:id" element={<FilaAcompanhar />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
