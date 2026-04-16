@@ -103,8 +103,8 @@ export async function notifyLead(
   lead: { phone: string; name: string },
   currentQueueSize: number,
   queueUrl: string
-) {
-  await notifyClient({
+): Promise<boolean> {
+  return await notifyClient({
     phone: lead.phone,
     message: `${lead.name}, a fila do NP Hair ta rapidinha agora! So ${currentQueueSize} pessoa(s). Quer entrar? ${queueUrl}`,
     salonId,

@@ -216,8 +216,13 @@ export default function Fila() {
 
   const handleNotifyLead = async (lead: { id: string; phone: string; name: string }) => {
     if (!salonId) return;
-    await notifyLead(salonId, lead, stats.totalInQueue, `${SITE_URL}/fila`);
-    markNotified(lead.id);
+    const sent = await notifyLead(salonId, lead, stats.totalInQueue, `${SITE_URL}/fila`);
+    if (sent) {
+      markNotified(lead.id);
+      toast({ title: "WhatsApp enviado!" });
+    } else {
+      toast({ title: "Falha ao enviar WhatsApp. Verifique Z-API.", variant: "destructive" });
+    }
   };
 
   const inServiceEntries = entries.filter((e) => e.status === "in_service");
