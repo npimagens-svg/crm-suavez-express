@@ -194,13 +194,10 @@ export function usePublicQueue() {
 
   const addLead = async (input: { name: string; phone: string; max_queue_size: number }) => {
     if (!salonId) throw new Error("Salon not found");
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("queue_leads")
-      .insert({ salon_id: salonId, ...input })
-      .select()
-      .single();
+      .insert({ salon_id: salonId, ...input });
     if (error) throw error;
-    return data;
   };
 
   return {
