@@ -35,21 +35,19 @@ export interface ServiceInput {
   return_reminder_message?: string;
 }
 
-export function useServices() {
+export function useServices(options?: { includeArchived?: boolean }) {
+  const includeArchived = options?.includeArchived ?? false;
   const { salonId } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["services", salonId],
+    queryKey: ["services", salonId, includeArchived],
     queryFn: async () => {
       if (!salonId) return [];
-      const { data, error } = await supabase
-        .from("services")
-        .select("*")
-        .eq("salon_id", salonId)
-        .eq("is_active", true)
-        .order("name");
+      let q = supabase.from("services").select("*").eq("salon_id", salonId);
+      if (!includeArchived) q = q.eq("is_active", true);
+      const { data, error } = await q.order("name");
       if (error) throw error;
       return data as Service[];
     },
@@ -127,6 +125,20 @@ export function useServices() {
     },
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("services").update({ is_active: true }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["services", salonId] });
+      toast({ title: "Serviço reativado!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao reativar serviço", description: error.message, variant: "destructive" });
+    },
+  });
+
   return {
     services: query.data ?? [],
     isLoading: query.isLoading,
@@ -134,8 +146,10 @@ export function useServices() {
     createService: createMutation.mutate,
     updateService: updateMutation.mutate,
     deleteService: deleteMutation.mutate,
+    restoreService: restoreMutation.mutate,
     isCreating: createMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    isRestoring: restoreMutation.isPending,
   };
 }

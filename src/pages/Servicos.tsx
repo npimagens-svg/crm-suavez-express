@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Plus, Clock, DollarSign, MoreHorizontal, Loader2, Upload, Search, FileText, FileSpreadsheet } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -24,8 +26,9 @@ export default function Servicos() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
-  const { services, isLoading, createService, updateService, deleteService, isCreating, isUpdating, isDeleting } = useServices();
+  const { services, isLoading, createService, updateService, deleteService, restoreService, isCreating, isUpdating, isDeleting } = useServices({ includeArchived: showArchived });
   const { isMaster, salonId } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -152,14 +155,20 @@ export default function Servicos() {
           </Card>
         ) : (
           <>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar serviço por nome ou categoria..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar serviço por nome ou categoria..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                <Label htmlFor="show-archived" className="cursor-pointer text-sm">Mostrar arquivados</Label>
+              </div>
             </div>
             <Card>
               <CardContent className="p-0">
@@ -181,7 +190,7 @@ export default function Servicos() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium truncate">{service.name}</span>
                             {service.category && <Badge variant="outline" className="text-xs shrink-0">{service.category}</Badge>}
-                            {!service.is_active && <Badge variant="secondary" className="text-xs shrink-0">Inativo</Badge>}
+                            {!service.is_active && <Badge variant="secondary" className="text-xs shrink-0 bg-amber-100 text-amber-800">Arquivado</Badge>}
                           </div>
                         </div>
                         <div className="flex items-center gap-4 shrink-0 text-sm">
@@ -203,7 +212,11 @@ export default function Servicos() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(service); }}>Editar</DropdownMenuItem>
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDelete(service); }} className="text-destructive">Excluir</DropdownMenuItem>
+                              {service.is_active ? (
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDelete(service); }} className="text-destructive">Excluir</DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); restoreService(service.id); }} className="text-emerald-700">Reativar</DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
