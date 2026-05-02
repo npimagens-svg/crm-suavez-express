@@ -48,6 +48,7 @@ export function useServices() {
         .from("services")
         .select("*")
         .eq("salon_id", salonId)
+        .eq("is_active", true)
         .order("name");
       if (error) throw error;
       return data as Service[];
@@ -97,12 +98,29 @@ export function useServices() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("services").delete().eq("id", id);
-      if (error) throw error;
+      // Try hard delete first (works for services with no history)
+      const { error: deleteError } = await supabase.from("services").delete().eq("id", id);
+      if (!deleteError) return { archived: false };
+
+      // Fallback to soft delete if FK constraint blocks (service has history)
+      const isFkError = deleteError.code === "23503" || /foreign key|violates/i.test(deleteError.message);
+      if (!isFkError) throw deleteError;
+
+      const { error: updateError } = await supabase
+        .from("services")
+        .update({ is_active: false })
+        .eq("id", id);
+      if (updateError) throw updateError;
+      return { archived: true };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["services", salonId] });
-      toast({ title: "Serviço removido com sucesso!" });
+      toast({
+        title: result?.archived ? "Serviço arquivado" : "Serviço removido com sucesso!",
+        description: result?.archived
+          ? "O serviço tem histórico vinculado (fila/comandas) e foi ocultado da lista. O histórico foi preservado."
+          : undefined,
+      });
     },
     onError: (error: Error) => {
       toast({ title: "Erro ao remover serviço", description: error.message, variant: "destructive" });
