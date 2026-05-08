@@ -137,6 +137,15 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
   });
   // % digitada pelo profissional na hora do fechamento (default = config.percent)
   const [cashbackPercentInput, setCashbackPercentInput] = useState("3");
+  // Creditos disponiveis do cliente (cashback acumulado de comandas anteriores)
+  const [availableCredits, setAvailableCredits] = useState<Array<{
+    id: string;
+    credit_amount: number;
+    expires_at: string;
+    min_purchase_amount: number;
+  }>>([]);
+  // Creditos selecionados pra aplicar nesta comanda
+  const [appliedCreditIds, setAppliedCreditIds] = useState<string[]>([]);
   const [packagePopoverOpen, setPackagePopoverOpen] = useState(false);
   const [availablePackages, setAvailablePackages] = useState<any[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(false);
@@ -287,6 +296,27 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
         setCashbackPercentInput(cfg.percent);
       });
   }, [open]);
+
+  // Load available credits (cashback ainda nao usado e nao expirado) do cliente
+  useEffect(() => {
+    if (!open || !comanda?.client_id) {
+      setAvailableCredits([]);
+      setAppliedCreditIds([]);
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    supabase
+      .from("client_credits")
+      .select("id, credit_amount, expires_at, min_purchase_amount")
+      .eq("client_id", comanda.client_id)
+      .eq("is_used", false)
+      .eq("is_expired", false)
+      .gt("expires_at", nowIso)
+      .order("expires_at", { ascending: true })
+      .then(({ data }) => {
+        setAvailableCredits((data as any) || []);
+      });
+  }, [open, comanda?.client_id]);
 
   // Check if comanda's caixa is closed (locked state)
   const comandaCaixa = comanda?.caixa_id ? openCaixas.find(c => c.id === comanda.caixa_id) : null;
@@ -1823,6 +1853,73 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Creditos disponiveis do cliente (cashback acumulado) */}
+              {comanda?.client_id && availableCredits.length > 0 && !isComandaLocked && (
+                <Card className="border-primary/40 bg-primary/5">
+                  <CardContent className="p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Gift className="h-4 w-4 text-primary" />
+                      Cashback disponivel deste cliente
+                    </div>
+                    {availableCredits.map((credit) => {
+                      const minOk = (subtotal || 0) >= Number(credit.min_purchase_amount);
+                      const expDate = new Date(credit.expires_at);
+                      const expFormatted = `${expDate.getDate().toString().padStart(2, "0")}/${(expDate.getMonth() + 1).toString().padStart(2, "0")}`;
+                      return (
+                        <div key={credit.id} className="flex items-center justify-between gap-2 text-sm">
+                          <div className="flex-1">
+                            <span className="font-semibold text-primary">R$ {Number(credit.credit_amount).toFixed(2)}</span>
+                            <span className="text-muted-foreground"> · expira {expFormatted}</span>
+                            {!minOk && <span className="text-destructive"> · compra min. R$ {Number(credit.min_purchase_amount).toFixed(2)}</span>}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={minOk ? "default" : "outline"}
+                            disabled={!minOk}
+                            onClick={async () => {
+                              try {
+                                const creditAmt = Number(credit.credit_amount);
+                                const currentDiscount = Number(comanda?.discount || 0);
+                                const currentTotal = Number(comanda?.total || subtotal);
+                                // Marca o credito como usado
+                                const { error: errCredit } = await supabase
+                                  .from("client_credits")
+                                  .update({
+                                    is_used: true,
+                                    used_at: new Date().toISOString(),
+                                    used_in_comanda_id: comanda.id,
+                                  })
+                                  .eq("id", credit.id);
+                                if (errCredit) throw errCredit;
+                                // Atualiza desconto e total da comanda
+                                const { error: errCom } = await supabase
+                                  .from("comandas")
+                                  .update({
+                                    discount: currentDiscount + creditAmt,
+                                    total: Math.max(0, currentTotal - creditAmt),
+                                  })
+                                  .eq("id", comanda.id);
+                                if (errCom) throw errCom;
+                                // Remove da lista local
+                                setAvailableCredits((prev) => prev.filter((c) => c.id !== credit.id));
+                                // Refresh comandas
+                                queryClient.invalidateQueries({ queryKey: ["comandas"] });
+                                queryClient.invalidateQueries({ queryKey: ["client-credits"] });
+                                toast({ title: `Cashback de R$ ${creditAmt.toFixed(2)} aplicado!` });
+                              } catch (e: any) {
+                                toast({ title: "Erro ao aplicar cashback", description: e?.message, variant: "destructive" });
+                              }
+                            }}
+                          >
+                            Aplicar
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Total a Cobrar — Avec large centered */}
               <div className="text-center py-2">
