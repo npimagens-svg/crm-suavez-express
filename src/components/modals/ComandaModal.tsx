@@ -1192,14 +1192,15 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
           .eq("id", caixaToUse);
       }
 
-      // Close comanda and link to caixa
+      // Close comanda and link to caixa — total RESPEITA discount (cashback aplicado, etc)
       const { error: closeError } = await supabase
         .from("comandas")
         .update({
           closed_at: new Date().toISOString(),
           is_paid: true,
           subtotal: subtotal,
-          total: subtotal,
+          discount: localDiscount,
+          total: Math.max(0, subtotal - localDiscount),
           caixa_id: caixaToUse,
         })
         .eq("id", comanda.id);
