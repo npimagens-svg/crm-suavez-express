@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useQueueSettings } from "@/hooks/useQueueSettings";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { useToast } from "@/hooks/use-toast";
@@ -19,7 +20,10 @@ export function QueueSettingsSection() {
   const [zapiToken, setZapiToken] = useState("");
   const [zapiClientToken, setZapiClientToken] = useState("");
   const [asaasApiKey, setAsaasApiKey] = useState("");
-  const [cashbackPercent, setCashbackPercent] = useState("7");
+  const [cashbackEnabled, setCashbackEnabled] = useState(true);
+  const [cashbackPercent, setCashbackPercent] = useState("3");
+  const [cashbackValidityDays, setCashbackValidityDays] = useState("15");
+  const [cashbackMinPurchase, setCashbackMinPurchase] = useState("100");
 
   useEffect(() => {
     if (settings) {
@@ -33,14 +37,19 @@ export function QueueSettingsSection() {
       setAsaasApiKey(settings.asaas_api_key || "");
     }
 
-    // Load cashback percent from system_config
+    // Load all cashback configs from system_config
     supabase
       .from("system_config")
-      .select("value")
-      .eq("key", "cashback_percent")
-      .maybeSingle()
+      .select("key, value")
+      .in("key", ["cashback_enabled", "cashback_percent", "cashback_validity_days", "cashback_min_purchase"])
       .then(({ data }) => {
-        if (data?.value) setCashbackPercent(data.value);
+        if (!data) return;
+        for (const row of data) {
+          if (row.key === "cashback_enabled") setCashbackEnabled(row.value !== "false");
+          else if (row.key === "cashback_percent" && row.value) setCashbackPercent(row.value);
+          else if (row.key === "cashback_validity_days" && row.value) setCashbackValidityDays(row.value);
+          else if (row.key === "cashback_min_purchase" && row.value) setCashbackMinPurchase(row.value);
+        }
       });
   }, [settings]);
 
@@ -57,10 +66,18 @@ export function QueueSettingsSection() {
       asaas_api_key: asaasApiKey || null,
     });
 
-    // Save cashback percent
+    // Save all cashback configs
     await supabase
       .from("system_config")
-      .upsert({ key: "cashback_percent", value: cashbackPercent }, { onConflict: "key" });
+      .upsert(
+        [
+          { key: "cashback_enabled", value: cashbackEnabled ? "true" : "false" },
+          { key: "cashback_percent", value: cashbackPercent },
+          { key: "cashback_validity_days", value: cashbackValidityDays },
+          { key: "cashback_min_purchase", value: cashbackMinPurchase },
+        ],
+        { onConflict: "key" }
+      );
   };
 
   if (isLoading) return <p>Carregando...</p>;
@@ -92,10 +109,26 @@ export function QueueSettingsSection() {
       <Card>
         <CardHeader><CardTitle>Cashback</CardTitle></CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Cashback ativo</Label>
+              <p className="text-xs text-muted-foreground">Quando desligado, a opcao some do fechamento da comanda</p>
+            </div>
+            <Switch checked={cashbackEnabled} onCheckedChange={setCashbackEnabled} />
+          </div>
           <div>
-            <Label>Porcentagem do cashback (%)</Label>
-            <Input type="number" step="0.5" min="0" max="50" value={cashbackPercent} onChange={(e) => setCashbackPercent(e.target.value)} />
-            <p className="text-xs text-muted-foreground mt-1">Porcentagem aplicada sobre servicos com preco cheio ao fechar comanda</p>
+            <Label>Porcentagem padrao (%)</Label>
+            <Input type="number" step="0.5" min="0" max="50" value={cashbackPercent} onChange={(e) => setCashbackPercent(e.target.value)} disabled={!cashbackEnabled} />
+            <p className="text-xs text-muted-foreground mt-1">Profissional pode sobrescrever no momento do fechamento da comanda</p>
+          </div>
+          <div>
+            <Label>Validade do credito (dias)</Label>
+            <Input type="number" min="1" max="365" value={cashbackValidityDays} onChange={(e) => setCashbackValidityDays(e.target.value)} disabled={!cashbackEnabled} />
+          </div>
+          <div>
+            <Label>Compra minima para usar o credito (R$)</Label>
+            <Input type="number" step="1" min="0" value={cashbackMinPurchase} onChange={(e) => setCashbackMinPurchase(e.target.value)} disabled={!cashbackEnabled} />
+            <p className="text-xs text-muted-foreground mt-1">Cliente so pode usar o cashback em uma compra futura acima desse valor</p>
           </div>
         </CardContent>
       </Card>

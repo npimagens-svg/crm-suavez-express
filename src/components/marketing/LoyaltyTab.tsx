@@ -25,6 +25,25 @@ export function LoyaltyTab() {
     enabled: !!salonId,
   });
 
+  // Carrega config dinamica do cashback
+  const { data: cashbackCfg } = useQuery({
+    queryKey: ["cashback-config"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("system_config")
+        .select("key, value")
+        .in("key", ["cashback_enabled", "cashback_percent", "cashback_validity_days", "cashback_min_purchase"]);
+      const cfg = { enabled: true, percent: "3", validityDays: "15", minPurchase: "100" };
+      for (const row of data || []) {
+        if (row.key === "cashback_enabled") cfg.enabled = row.value !== "false";
+        else if (row.key === "cashback_percent" && row.value) cfg.percent = row.value;
+        else if (row.key === "cashback_validity_days" && row.value) cfg.validityDays = row.value;
+        else if (row.key === "cashback_min_purchase" && row.value) cfg.minPurchase = row.value;
+      }
+      return cfg;
+    },
+  });
+
   const stats = {
     total: credits?.length || 0,
     active: credits?.filter(c => !c.is_used && !c.is_expired && new Date(c.expires_at) > new Date()).length || 0,
@@ -38,7 +57,11 @@ export function LoyaltyTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-muted-foreground">Créditos de cashback gerados automaticamente ao fechar comandas (7% do valor, válido por 15 dias, compras acima de R$100).</p>
+      <p className="text-muted-foreground">
+        {cashbackCfg?.enabled === false
+          ? "Cashback desativado nas configurações. Os créditos abaixo são históricos."
+          : `Créditos de cashback gerados ao fechar comandas (${cashbackCfg?.percent ?? "3"}% padrão, válido por ${cashbackCfg?.validityDays ?? "15"} dias, compras acima de R$ ${cashbackCfg?.minPurchase ?? "100"}). O profissional decide cliente a cliente e pode ajustar a %.`}
+      </p>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>

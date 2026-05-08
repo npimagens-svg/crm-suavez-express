@@ -126,7 +126,17 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
   const [serviceProductUsages, setServiceProductUsages] = useState<Record<string, ProductUsage[]>>({});
   const [saveOverpaymentAsCredit, setSaveOverpaymentAsCredit] = useState(false);
   const [saveUnderpaymentAsDebt, setSaveUnderpaymentAsDebt] = useState(false);
-  const [enableCashback, setEnableCashback] = useState(true);
+  // Cashback: opt-in (default false) — profissional decide quando dar
+  const [enableCashback, setEnableCashback] = useState(false);
+  // Cashback config carregada do system_config
+  const [cashbackConfig, setCashbackConfig] = useState({
+    enabled: true,
+    percent: "3",
+    validityDays: 15,
+    minPurchase: 100,
+  });
+  // % digitada pelo profissional na hora do fechamento (default = config.percent)
+  const [cashbackPercentInput, setCashbackPercentInput] = useState("3");
   const [packagePopoverOpen, setPackagePopoverOpen] = useState(false);
   const [availablePackages, setAvailablePackages] = useState<any[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(false);
@@ -256,6 +266,27 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
   useEffect(() => {
     setComandaDateOverride(null);
   }, [comanda?.id]);
+
+  // Load cashback config (enabled, percent, validity_days, min_purchase) when modal opens
+  useEffect(() => {
+    if (!open) return;
+    supabase
+      .from("system_config")
+      .select("key, value")
+      .in("key", ["cashback_enabled", "cashback_percent", "cashback_validity_days", "cashback_min_purchase"])
+      .then(({ data }) => {
+        if (!data) return;
+        const cfg = { enabled: true, percent: "3", validityDays: 15, minPurchase: 100 };
+        for (const row of data) {
+          if (row.key === "cashback_enabled") cfg.enabled = row.value !== "false";
+          else if (row.key === "cashback_percent" && row.value) cfg.percent = row.value;
+          else if (row.key === "cashback_validity_days" && row.value) cfg.validityDays = parseInt(row.value) || 15;
+          else if (row.key === "cashback_min_purchase" && row.value) cfg.minPurchase = parseFloat(row.value) || 100;
+        }
+        setCashbackConfig(cfg);
+        setCashbackPercentInput(cfg.percent);
+      });
+  }, [open]);
 
   // Check if comanda's caixa is closed (locked state)
   const comandaCaixa = comanda?.caixa_id ? openCaixas.find(c => c.id === comanda.caixa_id) : null;
@@ -1176,8 +1207,8 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
         }
       }
 
-      // Generate loyalty credit (7% of full-price SERVICES only — no packages, no discounts)
-      if (enableCashback && comanda.client_id) {
+      // Generate loyalty credit — opt-in (profissional marca) + % editavel + configs do system_config
+      if (enableCashback && cashbackConfig.enabled && comanda.client_id) {
         try {
           const servicesTotal = editableItems
             .filter(item => {
@@ -1195,23 +1226,21 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
             })
             .reduce((sum, item) => sum + (item.total_price || 0), 0);
 
-          if (servicesTotal > 0) {
-            // Load cashback percent from system_config
-            const { data: cbConfig } = await supabase
-              .from("system_config")
-              .select("value")
-              .eq("key", "cashback_percent")
-              .maybeSingle();
-            const cashbackPercent = cbConfig?.value ? parseFloat(cbConfig.value) / 100 : 0.07;
-            const creditAmount = Math.round(servicesTotal * cashbackPercent * 100) / 100;
+          // % digitada pelo profissional (fallback config padrao)
+          const inputPct = parseFloat(cashbackPercentInput);
+          const cashbackPercent = (isNaN(inputPct) ? parseFloat(cashbackConfig.percent) : inputPct) / 100;
+          const creditAmount = Math.round(servicesTotal * cashbackPercent * 100) / 100;
+
+          // So gera credito se houver servico de preco cheio E % > 0
+          if (servicesTotal > 0 && creditAmount > 0) {
             const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + 15);
+            expiresAt.setDate(expiresAt.getDate() + cashbackConfig.validityDays);
             await supabase.from("client_credits").insert({
               salon_id: salonId,
               client_id: comanda.client_id,
               comanda_id: comanda.id,
               credit_amount: creditAmount,
-              min_purchase_amount: 100,
+              min_purchase_amount: cashbackConfig.minPurchase,
               expires_at: expiresAt.toISOString(),
             });
 
@@ -1803,12 +1832,29 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
               {/* Options row: cashback, credit, debt */}
               <div className="flex flex-wrap gap-4 text-sm">
-                {comanda?.client_id && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Checkbox id="enable-cashback" checked={enableCashback} onCheckedChange={(checked) => setEnableCashback(!!checked)} />
-                    <Gift className="h-3.5 w-3.5 text-primary" />
-                    Cashback
-                  </label>
+                {comanda?.client_id && cashbackConfig.enabled && (
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox id="enable-cashback" checked={enableCashback} onCheckedChange={(checked) => setEnableCashback(!!checked)} />
+                      <Gift className="h-3.5 w-3.5 text-primary" />
+                      Cashback
+                    </label>
+                    {enableCashback && (
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="50"
+                          value={cashbackPercentInput}
+                          onChange={(e) => setCashbackPercentInput(e.target.value)}
+                          className="h-7 w-16 text-sm"
+                          title={`Padrao: ${cashbackConfig.percent}% — ajuste por cliente`}
+                        />
+                        <span className="text-muted-foreground">%</span>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {difference < -0.01 && comanda?.client_id && (
                   <label className="flex items-center gap-2 cursor-pointer">
