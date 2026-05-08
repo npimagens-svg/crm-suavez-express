@@ -146,6 +146,8 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
   }>>([]);
   // Creditos selecionados pra aplicar nesta comanda
   const [appliedCreditIds, setAppliedCreditIds] = useState<string[]>([]);
+  // Discount efetivo da comanda (lido da prop + somas locais ao aplicar credito) — espelho local
+  const [localDiscount, setLocalDiscount] = useState<number>(0);
   const [packagePopoverOpen, setPackagePopoverOpen] = useState(false);
   const [availablePackages, setAvailablePackages] = useState<any[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(false);
@@ -296,6 +298,11 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
         setCashbackPercentInput(cfg.percent);
       });
   }, [open]);
+
+  // Sincroniza localDiscount com comanda.discount quando comanda muda
+  useEffect(() => {
+    setLocalDiscount(Number(comanda?.discount || 0));
+  }, [comanda?.id, comanda?.discount]);
 
   // Load available credits (cashback ainda nao usado e nao expirado) do cliente
   useEffect(() => {
@@ -1882,8 +1889,9 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                             onClick={async () => {
                               try {
                                 const creditAmt = Number(credit.credit_amount);
-                                const currentDiscount = Number(comanda?.discount || 0);
-                                const currentTotal = Number(comanda?.total || subtotal);
+                                // Usa o discount LOCAL como base (nao a prop, que nao se atualiza dentro do modal)
+                                const newDiscount = localDiscount + creditAmt;
+                                const newTotal = Math.max(0, subtotal - newDiscount);
                                 // Marca o credito como usado
                                 const { error: errCredit } = await supabase
                                   .from("client_credits")
@@ -1894,18 +1902,18 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                                   })
                                   .eq("id", credit.id);
                                 if (errCredit) throw errCredit;
-                                // Atualiza desconto e total da comanda
+                                // Atualiza desconto e total da comanda no banco
                                 const { error: errCom } = await supabase
                                   .from("comandas")
                                   .update({
-                                    discount: currentDiscount + creditAmt,
-                                    total: Math.max(0, currentTotal - creditAmt),
+                                    discount: newDiscount,
+                                    total: newTotal,
                                   })
                                   .eq("id", comanda.id);
                                 if (errCom) throw errCom;
-                                // Remove da lista local
+                                // Atualiza estado local — refletir na UI imediatamente sem refetch
+                                setLocalDiscount(newDiscount);
                                 setAvailableCredits((prev) => prev.filter((c) => c.id !== credit.id));
-                                // Refresh comandas
                                 queryClient.invalidateQueries({ queryKey: ["comandas"] });
                                 queryClient.invalidateQueries({ queryKey: ["client-credits"] });
                                 toast({ title: `Cashback de R$ ${creditAmt.toFixed(2)} aplicado!` });
