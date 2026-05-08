@@ -27,7 +27,7 @@ export default function Fila() {
   const navigate = useNavigate();
   const { salonId } = useAuth();
   const { toast } = useToast();
-  const { entries, stats, addToQueue, checkIn, assignProfessional, skip, remove, reorder } = useQueue();
+  const { entries, stats, addToQueue, checkIn, assignProfessional, skip, remove, reorder, complete } = useQueue();
   const { pendingLeads, notifiedLeads, markNotified } = useQueueLeads();
   const { getCurrentUserOpenCaixa, openCaixaAsync, updateCaixaTotalsAsync } = useCaixas();
   const { createComandaAsync } = useComandas();
@@ -302,6 +302,11 @@ export default function Fila() {
                 isFirst={true} isLast={true}
                 onCheckIn={() => {}} onAssignProfessional={() => {}} onSkip={() => {}} onRemove={() => handleRemove(entry)}
                 onMoveUp={() => {}} onMoveDown={() => {}}
+                onComplete={() => {
+                  if (confirm(`Finalizar o atendimento de ${entry.customer_name}?`)) {
+                    complete(entry.id);
+                  }
+                }}
               />
             ))}
           </TabsContent>

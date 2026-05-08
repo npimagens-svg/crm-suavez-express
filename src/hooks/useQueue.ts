@@ -135,6 +135,10 @@ export function useQueue() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue", salonId] });
+      toast({ title: "Atendimento finalizado!" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Erro ao finalizar atendimento", description: error?.message, variant: "destructive" });
     },
   });
 

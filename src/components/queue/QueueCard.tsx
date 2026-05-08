@@ -16,6 +16,7 @@ interface QueueCardProps {
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  onComplete?: () => void;
 }
 
 const statusConfig: Record<string, { label: string; className: string }> = {
@@ -24,7 +25,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   in_service: { label: "Em atendimento", className: "bg-orange-100 text-orange-800" },
 };
 
-export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessional, onSkip, onRemove, onMoveUp, onMoveDown }: QueueCardProps) {
+export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessional, onSkip, onRemove, onMoveUp, onMoveDown, onComplete }: QueueCardProps) {
   const status = statusConfig[entry.status] || statusConfig.waiting;
   const timeInQueue = formatDistanceToNow(new Date(entry.created_at), { locale: ptBR, addSuffix: false });
 
@@ -84,7 +85,7 @@ export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessio
         </div>
 
         {/* Action buttons row */}
-        {entry.status !== "in_service" && (
+        {entry.status !== "in_service" ? (
           <div className="flex items-center gap-2 pl-10">
             <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={onAssignProfessional}>
               <UserPlus className="h-4 w-4 mr-1" />
@@ -97,6 +98,19 @@ export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessio
             <Button size="sm" variant="outline" className="text-red-700 border-red-300 hover:bg-red-50" onClick={onRemove}>
               <X className="h-4 w-4 mr-1" />
               Remover
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 pl-10">
+            {onComplete && (
+              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={onComplete}>
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Finalizar atendimento
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="text-red-700 border-red-300 hover:bg-red-50" onClick={onRemove}>
+              <X className="h-4 w-4 mr-1" />
+              Remover da fila
             </Button>
           </div>
         )}
