@@ -887,7 +887,9 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
   const subtotal = editableItems.reduce((acc, item) => acc + Number(item.total_price), 0);
   const totalPayments = payments.reduce((acc, p) => acc + p.amount, 0);
-  const difference = subtotal - totalPayments;
+  // Total efetivo a cobrar — abate o discount da comanda (cashback aplicado, etc)
+  const totalACobrar = Math.max(0, subtotal - Number(comanda?.discount || 0));
+  const difference = totalACobrar - totalPayments;
 
   const handlePrintReceipt = () => {
     if (!comanda) return;
@@ -1921,10 +1923,23 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                 </Card>
               )}
 
-              {/* Total a Cobrar — Avec large centered */}
+              {/* Total a Cobrar — desconto da comanda (cashback aplicado etc) */}
               <div className="text-center py-2">
-                <Label className="text-xs text-muted-foreground">Total a Cobrar:</Label>
-                <p className="text-3xl font-bold text-destructive">{formatCurrency(subtotal)}</p>
+                {Number(comanda?.discount || 0) > 0 ? (
+                  <>
+                    <div className="flex justify-center items-baseline gap-3 text-sm text-muted-foreground">
+                      <span>Subtotal: {formatCurrency(subtotal)}</span>
+                      <span className="text-green-600">- Desconto cashback: {formatCurrency(Number(comanda?.discount || 0))}</span>
+                    </div>
+                    <Label className="text-xs text-muted-foreground">Total a Cobrar:</Label>
+                    <p className="text-3xl font-bold text-destructive">{formatCurrency(Math.max(0, subtotal - Number(comanda?.discount || 0)))}</p>
+                  </>
+                ) : (
+                  <>
+                    <Label className="text-xs text-muted-foreground">Total a Cobrar:</Label>
+                    <p className="text-3xl font-bold text-destructive">{formatCurrency(subtotal)}</p>
+                  </>
+                )}
               </div>
 
               {/* Options row: cashback, credit, debt */}
