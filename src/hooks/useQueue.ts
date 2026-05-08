@@ -28,6 +28,24 @@ export function useQueue() {
     queryKey: ["queue", salonId],
     queryFn: async () => {
       if (!salonId) return [];
+
+      // Dia operacional: hoje a partir de 00:00 hora de Sao Paulo
+      const todayStartUtc = (() => {
+        const d = new Date();
+        // ajusta pra inicio do dia local (browser do operador)
+        d.setHours(0, 0, 0, 0);
+        return d.toISOString();
+      })();
+
+      // Auto-arquiva qualquer zumbi ativo de antes de hoje (se houver)
+      // — protege contra entradas que ficaram presas por bug ou queda de luz
+      await supabase
+        .from("queue_entries")
+        .update({ status: "completed", updated_at: new Date().toISOString() })
+        .eq("salon_id", salonId)
+        .in("status", ["waiting", "checked_in", "in_service"])
+        .lt("created_at", todayStartUtc);
+
       const { data, error } = await supabase
         .from("queue_entries")
         .select(`
@@ -37,6 +55,7 @@ export function useQueue() {
         `)
         .eq("salon_id", salonId)
         .in("status", ["waiting", "checked_in", "in_service"])
+        .gte("created_at", todayStartUtc)
         .order("position", { ascending: true });
 
       if (error) throw error;
@@ -47,11 +66,17 @@ export function useQueue() {
 
   const getNextPosition = async (): Promise<number> => {
     if (!salonId) return 1;
+    const todayStartUtc = (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.toISOString();
+    })();
     const { data } = await supabase
       .from("queue_entries")
       .select("position")
       .eq("salon_id", salonId)
       .in("status", ["waiting", "checked_in", "in_service"])
+      .gte("created_at", todayStartUtc)
       .order("position", { ascending: false })
       .limit(1);
 
