@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
 import { z } from "zod";
+import { supabase } from "@/lib/dynamicSupabaseClient";
 
 const loginSchema = z.object({
   email: z.string().email("Email inválido"),
@@ -19,9 +20,31 @@ export default function AuthNew() {
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const [resetLoading, setResetLoading] = useState(false);
+
   const { signIn } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  const handleResetPassword = async () => {
+    const email = loginData.email.trim();
+    if (!email) {
+      toast({ title: "Digite seu email primeiro", description: "Preencha o campo email acima e clique de novo em 'Esqueci minha senha'.", variant: "destructive" });
+      return;
+    }
+    setResetLoading(true);
+    const redirectTo = `${window.location.origin}/auth`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    setResetLoading(false);
+    if (error) {
+      toast({ title: "Erro ao enviar link", description: error.message, variant: "destructive" });
+    } else {
+      toast({
+        title: "Link enviado!",
+        description: `Se o email ${email} estiver cadastrado, você receberá um link para redefinir a senha.`,
+      });
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,11 +167,13 @@ export default function AuthNew() {
               {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
             </div>
 
-            <button 
+            <button
               type="button"
-              className="text-sm text-primary hover:underline"
+              onClick={handleResetPassword}
+              disabled={resetLoading}
+              className="text-sm text-primary hover:underline disabled:opacity-50"
             >
-              Esqueci minha senha
+              {resetLoading ? "Enviando..." : "Esqueci minha senha"}
             </button>
 
             <Button type="submit" className="w-full h-12 text-base" disabled={loading}>

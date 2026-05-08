@@ -335,15 +335,51 @@ function ProfessionalForm({ professional }: { professional: Professional }) {
   };
 
   const handleDeleteAccess = async () => {
-    if (!professional.user_id || !salonId) return;
+    if (!salonId) {
+      toast({ title: "Erro: salao nao identificado", variant: "destructive" });
+      return;
+    }
+    if (!professional.user_id) {
+      toast({ title: "Este profissional nao tem acesso criado ainda", variant: "destructive" });
+      return;
+    }
     if (!confirm("Tem certeza que deseja excluir o acesso deste profissional ao sistema?")) return;
-    const { error } = await supabase.functions.invoke("delete-user-access", {
-      body: { userId: professional.user_id, salonId },
-    });
-    if (error) {
-      toast({ title: "Erro ao excluir acesso", variant: "destructive" });
-    } else {
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-user-access", {
+        body: { userId: professional.user_id, salonId },
+      });
+      if (error) {
+        // Tenta extrair mensagem detalhada
+        const msg = (error as any)?.context?.body || error.message || "Erro desconhecido";
+        toast({ title: "Erro ao excluir acesso", description: String(msg).slice(0, 200), variant: "destructive" });
+        return;
+      }
+      if ((data as any)?.error) {
+        toast({ title: "Erro ao excluir acesso", description: (data as any).error, variant: "destructive" });
+        return;
+      }
       toast({ title: "Acesso excluído com sucesso!" });
+      // Recarregar lista de profissionais
+      window.location.reload();
+    } catch (e: any) {
+      toast({ title: "Erro inesperado", description: e?.message, variant: "destructive" });
+    }
+  };
+
+  // Envia email de redefinicao de senha pro profissional
+  const handleSendResetPassword = async () => {
+    const email = newAccessEmail || form.email;
+    if (!email) {
+      toast({ title: "Profissional nao tem email cadastrado", variant: "destructive" });
+      return;
+    }
+    if (!confirm(`Enviar link de redefinicao de senha para ${email}?`)) return;
+    const redirectTo = `${window.location.origin}/auth`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      toast({ title: "Erro ao enviar link", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Link enviado!", description: `Verifique a caixa de entrada de ${email}` });
     }
   };
 
@@ -573,7 +609,7 @@ function ProfessionalForm({ professional }: { professional: Professional }) {
 
                 {isMaster && (
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" className="gap-1">
+                    <Button variant="outline" size="sm" className="gap-1" onClick={handleSendResetPassword}>
                       <KeyRound className="h-3.5 w-3.5" /> Trocar Senha
                     </Button>
                     <Button variant="destructive" size="sm" className="gap-1" onClick={handleDeleteAccess}>
