@@ -1,21 +1,32 @@
 // Webhook Asaas → sincroniza queue_entries.payment_status
 //
-// Configurado em https://www.asaas.com/config/notifications:
+// Configurado em https://www.asaas.com/notifications/list:
 //   URL:           https://ewxiaxsmohxuabcmxuyc.supabase.co/functions/v1/asaas-webhook
 //   Eventos:       PAYMENT_CONFIRMED, PAYMENT_RECEIVED, PAYMENT_OVERDUE,
 //                  PAYMENT_DELETED, PAYMENT_REFUNDED
-//   Access Token:  igual ao queue_settings.asaas_api_key do salão
+//   Access Token:  Secret ASAAS_WEBHOOK_TOKEN (gerado aleatório, NÃO é a
+//                  API key do Asaas — Asaas rejeita reuso da API key).
 //
 // Deploy: npx supabase functions deploy asaas-webhook --no-verify-jwt
 // (sem JWT porque Asaas não manda Bearer Authorization).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 Deno.serve(async (req) => {
+  // GET = sanity check (Asaas valida URL com HEAD/GET antes de aceitar).
+  // Responde 200 OK com body simples pra passar na validação do painel.
+  if (req.method === "GET" || req.method === "HEAD") {
+    return new Response(
+      JSON.stringify({ ok: true, service: "asaas-webhook" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
 
   const headerToken = req.headers.get("asaas-access-token") ?? "";
+  const expectedToken = Deno.env.get("ASAAS_WEBHOOK_TOKEN") ?? "";
 
   let body: any;
   try {
@@ -30,20 +41,11 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } }
   );
 
-  // Validação opcional: se vier token no header, ele DEVE bater com alguma
-  // queue_settings.asaas_api_key. Se vier vazio, aceita (MVP).
-  if (headerToken) {
-    const { data: qs } = await supa
-      .from("queue_settings")
-      .select("salon_id")
-      .eq("asaas_api_key", headerToken)
-      .limit(1)
-      .maybeSingle();
-
-    if (!qs) {
-      console.warn("Asaas webhook: token mismatch, ignoring");
-      return new Response("Token mismatch", { status: 401 });
-    }
+  // Validação: se temos ASAAS_WEBHOOK_TOKEN configurado, header tem que bater.
+  // Se secret não tá configurado (modo dev), aceita qualquer chamada.
+  if (expectedToken && headerToken !== expectedToken) {
+    console.warn("Asaas webhook: token mismatch, ignoring");
+    return new Response("Token mismatch", { status: 401 });
   }
 
   const event: string = body.event ?? "";
