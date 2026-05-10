@@ -9,7 +9,8 @@ export type IssueType =
   | 'paid_without_payment'
   | 'payment_without_paid_flag'
   | 'pagbank_orphan_transaction'
-  | 'cashback_overdraft';
+  | 'cashback_overdraft'
+  | 'asaas_payment_pending';
 
 export type Severity = 'high' | 'medium' | 'low';
 
@@ -23,11 +24,32 @@ export interface ClosureIssue {
   actual_value?: Record<string, unknown>;
 }
 
+export type PaymentProvider = 'pagbank' | 'asaas' | 'manual';
+
+export interface ProviderBreakdown {
+  pagbank: number;
+  asaas: number;
+  manual: number;
+}
+
+export interface PaymentMethodBucket {
+  count: number;
+  gross: number;
+  net: number;
+  by_provider: ProviderBreakdown;
+}
+
+export interface CashBucket {
+  count: number;
+  gross: number;
+  net: number;
+}
+
 export interface PaymentMix {
-  credit:  { count: number; gross: number; net: number };
-  debit:   { count: number; gross: number; net: number };
-  pix:     { count: number; gross: number; net: number };
-  cash:    { count: number; gross: number; net: number };
+  credit: PaymentMethodBucket;
+  debit:  PaymentMethodBucket;
+  pix:    PaymentMethodBucket;
+  cash:   CashBucket;
 }
 
 export interface ProfessionalStats {
@@ -46,7 +68,12 @@ export interface ServiceStats {
 }
 
 export interface DailyKpis {
-  revenue: { gross: number; net: number; expected_from_pagbank: number };
+  revenue: {
+    gross: number;
+    net: number;
+    expected_from_pagbank: number;
+    expected_from_asaas: number;
+  };
   bookings: { count: number; average_ticket: number };
   by_professional: ProfessionalStats[];
   top_services: ServiceStats[];
@@ -69,6 +96,19 @@ export interface PagBankTransaction {
   quantidade_parcelas: number;
 }
 
+export interface AsaasPayment {
+  id: string;
+  status: string;              // 'PENDING' | 'CONFIRMED' | 'RECEIVED' | 'OVERDUE' | 'REFUNDED' | 'RECEIVED_IN_CASH'
+  billingType: string;         // 'BOLETO' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'PIX' | 'UNDEFINED'
+  value: number;
+  netValue: number;
+  customer?: string;           // customer_id Asaas (opcional pra robustez no parse)
+  dateCreated: string;
+  confirmedDate?: string;
+  paymentDate?: string;
+  description?: string;
+}
+
 export interface DailyReportResponse {
   period: { start: string; end: string; days: number };
   kpis: DailyKpis;
@@ -81,6 +121,7 @@ export interface DailyReportResponse {
   markdown: string;
   html: string;
   pagbank_unavailable?: boolean;
+  asaas_unavailable?: boolean;
 }
 
 // Domínio (input das funções de cálculo)
@@ -107,6 +148,7 @@ export interface ComandaWithItems {
     id: string;
     amount: number;
     payment_method: string;
+    payment_provider?: PaymentProvider;
     fee_amount: number;
     net_amount: number;
     installments: number;

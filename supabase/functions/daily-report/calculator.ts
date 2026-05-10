@@ -1,15 +1,19 @@
 import type {
+  AsaasPayment,
   ComandaWithItems,
   PagBankTransaction,
   PaymentMix,
+  PaymentProvider,
   ProfessionalStats,
+  ProviderBreakdown,
   ServiceStats,
 } from "./types.ts";
 
 export function calculateRevenue(
   comandas: ComandaWithItems[],
-  pagbank: PagBankTransaction[]
-): { gross: number; net: number; expected_from_pagbank: number } {
+  pagbank: PagBankTransaction[],
+  asaas: AsaasPayment[] = []
+): { gross: number; net: number; expected_from_pagbank: number; expected_from_asaas: number } {
   const paid = comandas.filter(c => c.is_paid);
   const gross = paid.reduce((sum, c) => sum + Number(c.total), 0);
   const net = paid.reduce(
@@ -21,7 +25,12 @@ export function calculateRevenue(
   const expected_from_pagbank = pagbank.reduce(
     (sum, t) => sum + Number(t.valor_total_transacao), 0
   );
-  return { gross, net, expected_from_pagbank };
+  // Só conta o que foi efetivamente recebido (CONFIRMED+RECEIVED).
+  // Ignora PENDING/OVERDUE/REFUNDED.
+  const expected_from_asaas = asaas
+    .filter(p => p.status === "CONFIRMED" || p.status === "RECEIVED" || p.status === "RECEIVED_IN_CASH")
+    .reduce((sum, p) => sum + Number(p.value), 0);
+  return { gross, net, expected_from_pagbank, expected_from_asaas };
 }
 
 export function calculateBookings(
@@ -88,17 +97,40 @@ export function calculateTopServices(comandas: ComandaWithItems[]): ServiceStats
 }
 
 export function calculatePaymentMix(comandas: ComandaWithItems[]): PaymentMix {
-  const empty = { count: 0, gross: 0, net: 0 };
+  const emptyProvider = (): ProviderBreakdown => ({ pagbank: 0, asaas: 0, manual: 0 });
+  const emptyBucket = () => ({ count: 0, gross: 0, net: 0, by_provider: emptyProvider() });
   const mix: PaymentMix = {
-    credit: { ...empty }, debit: { ...empty }, pix: { ...empty }, cash: { ...empty }
+    credit: emptyBucket(),
+    debit:  emptyBucket(),
+    pix:    emptyBucket(),
+    cash:   { count: 0, gross: 0, net: 0 },
   };
   for (const c of comandas.filter(x => x.is_paid)) {
     for (const p of c.payments) {
       const key = (p.payment_method ?? "").toLowerCase() as keyof PaymentMix;
       if (!(key in mix)) continue;
-      mix[key].count += 1;
-      mix[key].gross += Number(p.amount);
-      mix[key].net += Number(p.net_amount ?? p.amount);
+      const amount = Number(p.amount);
+      const netAmount = Number(p.net_amount ?? p.amount);
+      const provider: PaymentProvider =
+        (p.payment_provider ?? "manual") as PaymentProvider;
+
+      if (key === "cash") {
+        const bucket = mix.cash;
+        bucket.count += 1;
+        bucket.gross += amount;
+        bucket.net += netAmount;
+      } else {
+        const bucket = mix[key];
+        bucket.count += 1;
+        bucket.gross += amount;
+        bucket.net += netAmount;
+        if (provider === "pagbank" || provider === "asaas" || provider === "manual") {
+          bucket.by_provider[provider] += amount;
+        } else {
+          // provider desconhecido vira manual (defensivo)
+          bucket.by_provider.manual += amount;
+        }
+      }
     }
   }
   return mix;
