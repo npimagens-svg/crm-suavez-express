@@ -329,10 +329,18 @@ export function detectDuplicateServiceSameClient(comandas: ComandaWithItems[]): 
 // Asaas pending (medium)
 // =============================================================================
 
+export interface QueueEntryLink {
+  customer_name: string;
+  status: string;          // 'waiting' | 'completed' | 'no_show' | 'in_service'
+  payment_id: string;      // pay_xxx do Asaas
+  created_at: string;
+}
+
 export function detectAsaasPaymentPending(
   asaasPayments: AsaasPayment[],
   comandas: ComandaWithItems[] = [],
   clientNameById: Record<string, string> = {},
+  queueEntriesByPaymentId: Record<string, QueueEntryLink> = {},
 ): ClosureIssue[] {
   const fmt = (n: number) => `R$ ${Number(n).toFixed(2).replace(".", ",")}`;
   const fmtDate = (iso: string) => {
@@ -369,8 +377,41 @@ export function detectAsaasPaymentPending(
       const valueKey = Number(p.value).toFixed(2);
       const candidates = comandasByValue.get(valueKey) ?? [];
 
+      // PRIORIDADE 1: cobrança veio da fila online (queue_entries.payment_id = asaas.id)
+      // Cenário golpe: cliente clicou na fila, gerou Asaas, foi atendida presencial
+      //   mas Asaas continua pending. Pode estar fugindo do pagamento.
+      const queueLink = queueEntriesByPaymentId[p.id];
+
       let humanDescription: string;
-      if (candidates.length === 0) {
+      let severity: "high" | "medium" = "medium";
+
+      if (queueLink) {
+        const customer = queueLink.customer_name || "cliente sem nome";
+        if (queueLink.status === "completed" || queueLink.status === "in_service") {
+          severity = "high";
+          humanDescription =
+            `🚨 *${customer}* entrou na fila online em ${when} e ` +
+            `${queueLink.status === "completed" ? "foi atendida" : "está sendo atendida"}, ` +
+            `mas a cobrança Asaas de ${fmt(Number(p.value))} (${label}) ` +
+            `continua PENDENTE. ` +
+            `Pode ser que esteja indo/foi embora sem pagar — confronte com a recepção AGORA!`;
+        } else if (queueLink.status === "waiting") {
+          humanDescription =
+            `${customer} está esperando na fila online (criada ${when}) ` +
+            `mas ainda não pagou a cobrança Asaas de ${fmt(Number(p.value))} (${label}). ` +
+            `Cobre antes de atender.`;
+        } else if (queueLink.status === "no_show") {
+          humanDescription =
+            `${customer} entrou na fila online em ${when} mas não compareceu (no-show). ` +
+            `Cobrança Asaas de ${fmt(Number(p.value))} (${label}) pode ser cancelada.`;
+        } else {
+          humanDescription =
+            `Cobrança Asaas de ${fmt(Number(p.value))} (${label}) de ${customer} ` +
+            `(fila online ${when}, status ${queueLink.status}) ainda pendente.`;
+        }
+      }
+      // PRIORIDADE 2: cobrança avulsa (não veio da fila) — cruza por valor
+      else if (candidates.length === 0) {
         humanDescription =
           `Cobrança Asaas de ${fmt(Number(p.value))} (${label}) criada em ${when} ainda está PENDENTE ` +
           `e não bate com nenhuma comanda paga do dia. Cliente pode ter desistido — ` +
@@ -392,7 +433,7 @@ export function detectAsaasPaymentPending(
 
       return {
         type: "asaas_payment_pending" as const,
-        severity: "medium" as const,
+        severity,
         description: humanDescription,
         actual_value: {
           asaas_id: p.id,
@@ -402,6 +443,7 @@ export function detectAsaasPaymentPending(
           date_created: p.dateCreated,
           description: p.description ?? null,
           candidate_comandas: candidates.map(c => c.num),
+          queue_link: queueLink ?? null,
         },
       };
     });
@@ -426,6 +468,7 @@ export interface DetectorInput {
   credits: Array<{ client_id: string; balance: number }>;
   asaas?: AsaasPayment[];
   clientNameById?: Record<string, string>;
+  queueEntriesByPaymentId?: Record<string, QueueEntryLink>;
 }
 
 export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
@@ -438,7 +481,12 @@ export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
     ...detectProfessionalMissing(input.comandas),
     ...detectPaymentWithoutPaidFlag(input.comandas),
     ...detectCashbackOverdraft(input.credits),
-    ...detectAsaasPaymentPending(input.asaas ?? [], input.comandas, input.clientNameById ?? {}),
+    ...detectAsaasPaymentPending(
+      input.asaas ?? [],
+      input.comandas,
+      input.clientNameById ?? {},
+      input.queueEntriesByPaymentId ?? {},
+    ),
     ...detectDuplicateServiceSameClient(input.comandas),
   ];
   const sev = { high: 0, medium: 1, low: 2 } as const;

@@ -259,12 +259,44 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     }
   }
 
+  // Linka Asaas PENDING/OVERDUE com queue_entries (payment_id = asaas.id)
+  // Cenário golpe: cliente clicou na fila online, gerou Asaas, foi atendida
+  // presencial mas cobrança continua pending → potencial fuga de pagamento.
+  const pendingAsaasIds = allAsaas
+    .filter(a => a.status === "PENDING" || a.status === "OVERDUE")
+    .map(a => a.id);
+  const queueEntriesByPaymentId: Record<string, {
+    customer_name: string;
+    status: string;
+    payment_id: string;
+    created_at: string;
+  }> = {};
+  if (pendingAsaasIds.length > 0) {
+    const { data: queueRows } = await supa
+      .from("queue_entries")
+      .select("customer_name, status, payment_id, created_at")
+      .eq("salon_id", salonId)
+      .in("payment_id", pendingAsaasIds);
+    // deno-lint-ignore no-explicit-any
+    for (const q of (queueRows ?? []) as any[]) {
+      if (q.payment_id) {
+        queueEntriesByPaymentId[q.payment_id] = {
+          customer_name: q.customer_name ?? "",
+          status: q.status ?? "",
+          payment_id: q.payment_id,
+          created_at: q.created_at,
+        };
+      }
+    }
+  }
+
   const issues = runAllDetectors({
     comandas,
     pagbank: allTx,
     credits: balances,
     asaas: allAsaas,
     clientNameById,
+    queueEntriesByPaymentId,
   });
 
   // 9) Persistir daily_reports + closure_issues (idempotente, somente 1 dia)
