@@ -130,7 +130,7 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     payments: (c.payments ?? []).map((p: any) => ({
       id: p.id,
       amount: Number(p.amount),
-      payment_method: String(p.payment_method ?? "").toLowerCase(),
+      payment_method: normalizePaymentMethod(p.payment_method),
       fee_amount: Number(p.fee_amount ?? 0),
       net_amount: Number(p.net_amount ?? 0),
       installments: Number(p.installments ?? 0),
@@ -293,6 +293,15 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
 }
 
 // helpers ---------------------------------------------------------------------
+
+// Banco usa "credit_card"/"debit_card", calculator+detector esperam "credit"/"debit".
+// Normaliza no momento da carga pra ter UMA fonte da verdade pros nomes.
+function normalizePaymentMethod(raw: unknown): string {
+  const v = String(raw ?? "").toLowerCase().trim();
+  if (v === "credit_card" || v === "credito" || v === "crédito") return "credit";
+  if (v === "debit_card"  || v === "debito"  || v === "débito")  return "debit";
+  return v; // pix, cash já estão corretos
+}
 
 function daysBetween(a: string, b: string): string[] {
   const out: string[] = [];
