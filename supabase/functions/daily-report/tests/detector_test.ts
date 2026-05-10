@@ -19,11 +19,33 @@ import pagbank from "./fixtures/pagbank_response.json" with { type: "json" };
 // Task 4.1 — 4 detectores high severity
 // =============================================================================
 
-Deno.test("detectPaymentMethodMismatch: pega Andreia (cash no sistema, debit no PagBank)", () => {
+Deno.test("detectPaymentMethodMismatch: detecta divergência agregada de débito (Andreia)", () => {
+  // divergent fixture: 1 comanda cash R$64 + 1 credit R$240
+  // pagbank: 1 debit R$64 (Andreia errada) + 1 credit R$240
+  // Sistema: credit 240, debit 0
+  // PagBank: credit 240, debit 64
+  // Diff: credit ok, debit -64 → emite 1 issue de débito
   const issues = detectPaymentMethodMismatch(divergent.comandas, pagbank.detalhes);
-  const andreia = issues.find((i) => i.comanda_id === "c75");
-  assertEquals(andreia?.severity, "high");
-  assertEquals(andreia?.type, "payment_method_mismatch");
+  assertEquals(issues.length, 1);
+  assertEquals(issues[0].severity, "high");
+  assertEquals(issues[0].type, "payment_method_mismatch");
+  // Diff de débito ~ -64
+  const ev = issues[0].expected_value as Record<string, number>;
+  assertEquals(ev.method as unknown as string, "debit");
+  assertEquals(Math.round(ev.diff), -64);
+});
+
+Deno.test("detectPaymentMethodMismatch: dia perfeito não emite issue", () => {
+  // Sistema com 1 credit R$100, PagBank com 1 credit R$100 — sem diff
+  const comandas = [{
+    id: "c1", salon_id: "s1", client_id: null, professional_id: null,
+    comanda_number: 1, total: 100, is_paid: true,
+    created_at: "2026-05-09T10:00:00Z", closed_at: "2026-05-09T10:30:00Z",
+    items: [], payments: [{ id: "p1", amount: 100, payment_method: "credit", fee_amount: 0, net_amount: 100, installments: 1 }]
+  }];
+  const pb = [{ meio_pagamento: 3, arranjo_ur: "CREDIT_VISA", valor_total_transacao: 100, valor_liquido_transacao: 97, taxa_intermediacao: 3, data_prevista_pagamento: "", quantidade_parcelas: 1 }];
+  const issues = detectPaymentMethodMismatch(comandas, pb);
+  assertEquals(issues.length, 0);
 });
 
 Deno.test("detectValueMismatch: comandas.total ≠ Σ items", () => {

@@ -17,31 +17,50 @@ export function detectPaymentMethodMismatch(
   comandas: ComandaWithItems[],
   pagbank: PagBankTransaction[],
 ): ClosureIssue[] {
+  // ALGORITMO AGREGADO: compara soma por método (credit/debit).
+  // Por que não 1-a-1? Vários payments têm o mesmo valor (manicure R$47,
+  // escova R$77...). Match por valor sozinho gera false positives gigantes.
+  // PIX: pode vir via PagBank OU outro provedor (não bate sempre).
+  // Cash: não vem no PagBank (presencial).
+  // Logo, só checamos credit/debit no agregado.
+  const TOLERANCE = 1.00; // R$ 1 de tolerância (arredondamento de taxa)
   const issues: ClosureIssue[] = [];
-  // Para cada comanda paga: tenta casar com transação PagBank por valor
-  // Se valor bate mas método diverge, é mismatch
+
+  const systemByMethod: Record<string, number> = { credit: 0, debit: 0 };
   for (const c of comandas.filter((x) => x.is_paid)) {
     for (const p of c.payments) {
-      const tx = pagbank.find((t) =>
-        Math.abs(Number(t.valor_total_transacao) - Number(p.amount)) < 0.01
-      );
-      if (!tx) continue;
-      const expectedMethod = PAYMENT_METHOD_TO_BRAND[tx.meio_pagamento];
-      if (!expectedMethod || expectedMethod === p.payment_method.toLowerCase()) continue;
+      const m = String(p.payment_method).toLowerCase();
+      if (m === "credit" || m === "debit") {
+        systemByMethod[m] += Number(p.amount);
+      }
+    }
+  }
+
+  const pagbankByMethod: Record<string, number> = { credit: 0, debit: 0 };
+  for (const t of pagbank) {
+    const m = PAYMENT_METHOD_TO_BRAND[t.meio_pagamento];
+    if (m === "credit" || m === "debit") {
+      pagbankByMethod[m] += Number(t.valor_total_transacao);
+    }
+  }
+
+  for (const method of ["credit", "debit"] as const) {
+    const diff = systemByMethod[method] - pagbankByMethod[method];
+    if (Math.abs(diff) > TOLERANCE) {
+      const label = method === "credit" ? "Crédito" : "Débito";
       issues.push({
         type: "payment_method_mismatch",
         severity: "high",
         description:
-          `Comanda #${c.comanda_number}: sistema diz ${p.payment_method} mas PagBank registrou ${tx.arranjo_ur}`,
-        comanda_id: c.id,
-        professional_id: c.professional_id ?? undefined,
+          `${label}: sistema R$ ${systemByMethod[method].toFixed(2)} ≠ ` +
+          `PagBank R$ ${pagbankByMethod[method].toFixed(2)} ` +
+          `(${diff > 0 ? "+" : ""}R$ ${diff.toFixed(2)})`,
         expected_value: {
-          method: expectedMethod,
-          brand: tx.arranjo_ur,
-          gross: tx.valor_total_transacao,
-          net: tx.valor_liquido_transacao,
+          method,
+          system_total: systemByMethod[method],
+          pagbank_total: pagbankByMethod[method],
+          diff,
         },
-        actual_value: { method: p.payment_method, amount: p.amount },
       });
     }
   }
@@ -86,24 +105,35 @@ export function detectPagbankOrphanTransaction(
   comandas: ComandaWithItems[],
   pagbank: PagBankTransaction[],
 ): ClosureIssue[] {
-  const allPayments = comandas.flatMap((c) => c.payments.map((p) => ({ ...p, comanda: c })));
+  // Algoritmo: cada transação PagBank tem que "consumir" 1 payment do sistema
+  // de valor+método iguais. Usa Set de payments já consumidos pra não casar 2x.
+  const consumed = new Set<string>();
+  const allPayments = comandas
+    .filter((c) => c.is_paid)
+    .flatMap((c) => c.payments.map((p) => ({ ...p, comandaNumber: c.comanda_number })));
   const issues: ClosureIssue[] = [];
   for (const tx of pagbank) {
+    const expectedMethod = PAYMENT_METHOD_TO_BRAND[tx.meio_pagamento];
     const match = allPayments.find((p) =>
+      !consumed.has(p.id) &&
       Math.abs(Number(p.amount) - Number(tx.valor_total_transacao)) < 0.01 &&
-      PAYMENT_METHOD_TO_BRAND[tx.meio_pagamento] === p.payment_method.toLowerCase()
+      expectedMethod === String(p.payment_method).toLowerCase()
     );
-    if (match) continue;
+    if (match) {
+      consumed.add(match.id);
+      continue;
+    }
     issues.push({
       type: "pagbank_orphan_transaction",
       severity: "high",
       description:
-        `PagBank registrou ${tx.arranjo_ur} R$${tx.valor_total_transacao} sem comanda correspondente`,
+        `PagBank registrou ${tx.arranjo_ur} R$ ${Number(tx.valor_total_transacao).toFixed(2)} sem comanda equivalente no sistema`,
       expected_value: { has_comanda: true },
       actual_value: {
         brand: tx.arranjo_ur,
         amount: tx.valor_total_transacao,
         method_code: tx.meio_pagamento,
+        liquido: tx.valor_liquido_transacao,
       },
     });
   }
