@@ -4,6 +4,7 @@
 import { createClient } from "supabase";
 import { z } from "zod";
 import { fetchPagBankTransactional } from "./pagbank.ts";
+import { fetchAsaasPayments } from "./asaas.ts";
 import {
   calculateBookings,
   calculateByProfessional,
@@ -20,7 +21,7 @@ import {
 import { runAllDetectors } from "./detector.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { renderHtml } from "./html.ts";
-import type { ComandaWithItems, DailyKpis, DailyReportResponse, PagBankTransaction } from "./types.ts";
+import type { AsaasPayment, ComandaWithItems, DailyKpis, DailyReportResponse, PagBankTransaction } from "./types.ts";
 
 const InputSchema = z.union([
   z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
@@ -97,7 +98,7 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
       total, subtotal, discount, is_paid,
       created_at, closed_at,
       items:comanda_items(service_id, quantity, unit_price, total_price, services(name)),
-      payments(id, amount, payment_method, fee_amount, net_amount, installments)
+      payments(id, amount, payment_method, payment_provider, fee_amount, net_amount, installments)
     `)
     .eq("salon_id", salonId)
     .gte("created_at", startTz)
@@ -134,6 +135,7 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
       id: p.id,
       amount: Number(p.amount),
       payment_method: normalizePaymentMethod(p.payment_method),
+      payment_provider: normalizePaymentProvider(p.payment_provider),
       fee_amount: Number(p.fee_amount ?? 0),
       net_amount: Number(p.net_amount ?? 0),
       installments: Number(p.installments ?? 0),
@@ -173,6 +175,27 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     allTx.push(...r.transactions);
   }
 
+  // 5b) Asaas — 1 chamada cobrindo o range inteiro (filtra por dateCreated)
+  // API key vem de queue_settings (1 por salão).
+  const { data: qs } = await supa
+    .from("queue_settings")
+    .select("asaas_api_key")
+    .eq("salon_id", salonId)
+    .maybeSingle();
+  const asaasApiKey: string = qs?.asaas_api_key ?? "";
+
+  const allAsaas: AsaasPayment[] = [];
+  let asaasUnavailable = false;
+  if (asaasApiKey) {
+    const r = await fetchAsaasPayments(startDate, endDate, asaasApiKey);
+    if (r.unavailable) asaasUnavailable = true;
+    allAsaas.push(...r.payments);
+  } else {
+    // Sem API key configurada = nada pra cruzar. Não marca unavailable
+    // porque "não configurado" é estado válido (salão pode não usar Asaas).
+    console.log("Asaas API key não configurada — pulando integração");
+  }
+
   // 6) Histórico (30 dias antes) — pra new_vs_returning + 7d_avg
   const histStart = subDaysISO(startDate, 30);
   const { data: history } = await supa
@@ -187,7 +210,7 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
 
   // 7) KPIs
   const kpis: DailyKpis = {
-    revenue: calculateRevenue(comandas, allTx),
+    revenue: calculateRevenue(comandas, allTx, allAsaas),
     bookings: calculateBookings(comandas),
     by_professional: calculateByProfessional(comandas, professionals ?? []),
     top_services: calculateTopServices(comandas),
@@ -224,6 +247,7 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     comandas,
     pagbank: allTx,
     credits: balances,
+    asaas: allAsaas,
   });
 
   // 9) Persistir daily_reports + closure_issues (idempotente, somente 1 dia)
@@ -233,6 +257,7 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
       report_date: startDate,
       kpis,
       pagbank_raw: { transactions: allTx, unavailable: pagbankUnavailable },
+      asaas_raw: { payments: allAsaas, unavailable: asaasUnavailable },
       generated_at: new Date().toISOString(),
       generated_by: "cron",
     }, { onConflict: "salon_id,report_date" });
@@ -289,9 +314,10 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     kpis,
     issues,
     comparisons,
-    markdown: renderMarkdown({ date: startDate, kpis, issues, pagbankUnavailable }),
-    html: renderHtml({ date: startDate, kpis, issues, pagbankUnavailable }),
+    markdown: renderMarkdown({ date: startDate, kpis, issues, pagbankUnavailable, asaasUnavailable }),
+    html: renderHtml({ date: startDate, kpis, issues, pagbankUnavailable, asaasUnavailable }),
     pagbank_unavailable: pagbankUnavailable,
+    asaas_unavailable: asaasUnavailable,
   };
 }
 
@@ -304,6 +330,13 @@ function normalizePaymentMethod(raw: unknown): string {
   if (v === "credit_card" || v === "credito" || v === "crédito") return "credit";
   if (v === "debit_card"  || v === "debito"  || v === "débito")  return "debit";
   return v; // pix, cash já estão corretos
+}
+
+// payment_provider pode vir null em payments antigos. Default 'manual'.
+function normalizePaymentProvider(raw: unknown): "pagbank" | "asaas" | "manual" {
+  const v = String(raw ?? "").toLowerCase().trim();
+  if (v === "pagbank" || v === "asaas" || v === "manual") return v;
+  return "manual";
 }
 
 function daysBetween(a: string, b: string): string[] {

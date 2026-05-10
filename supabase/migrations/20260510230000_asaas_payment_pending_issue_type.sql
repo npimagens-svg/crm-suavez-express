@@ -1,6 +1,7 @@
 -- ====================================================================
--- Novo issue_type: asaas_payment_pending
--- Cobrança Asaas (PIX/cartão online) criada e não paga online.
+-- Asaas em daily-report:
+--   1) Novo issue_type: asaas_payment_pending
+--   2) Coluna asaas_raw em daily_reports pra guardar payload bruto
 -- Cleiton 10/05: integração Asaas em daily-report.
 -- ====================================================================
 
@@ -19,3 +20,9 @@ ALTER TABLE closure_issues ADD CONSTRAINT closure_issues_issue_type_check
     'cashback_overdraft',
     'asaas_payment_pending'
   ));
+
+ALTER TABLE daily_reports
+  ADD COLUMN IF NOT EXISTS asaas_raw jsonb;
+
+COMMENT ON COLUMN daily_reports.asaas_raw IS
+  'Payload bruto Asaas { payments: AsaasPayment[], unavailable: boolean } do dia';

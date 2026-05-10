@@ -13,10 +13,21 @@ export interface RenderInput {
   kpis: DailyKpis;
   issues: ClosureIssue[];
   pagbankUnavailable?: boolean;
+  asaasUnavailable?: boolean;
+}
+
+// Linha de breakdown por provider (omite zero). Ex:
+//   ↳ PagBank R$ 100 · Asaas R$ 50
+function providerLine(by: { pagbank: number; asaas: number; manual: number }): string | null {
+  const parts: string[] = [];
+  if (by.pagbank > 0) parts.push(`PagBank ${fmt(by.pagbank)}`);
+  if (by.asaas   > 0) parts.push(`Asaas online ${fmt(by.asaas)}`);
+  if (by.manual  > 0) parts.push(`Manual ${fmt(by.manual)}`);
+  return parts.length === 0 ? null : `   ↳ ${parts.join(" · ")}`;
 }
 
 export function renderMarkdown(input: RenderInput): string {
-  const { date, kpis, issues, pagbankUnavailable } = input;
+  const { date, kpis, issues, pagbankUnavailable, asaasUnavailable } = input;
   const [y, m, d] = date.split("-");
   const ddmm = `${d}/${m}/${y}`;
   const issueCount = issues.length;
@@ -36,19 +47,45 @@ export function renderMarkdown(input: RenderInput): string {
 
   const mix = kpis.payment_mix;
   const total = mix.credit.gross + mix.debit.gross + mix.pix.gross + mix.cash.gross;
-  const mixLine = total === 0 ? "—" : [
-    `💳 Crédito ${fmt(mix.credit.gross)} (${((mix.credit.gross / total) * 100).toFixed(0)}%)`,
-    `💳 Débito ${fmt(mix.debit.gross)} (${((mix.debit.gross / total) * 100).toFixed(0)}%)`,
-    `📱 PIX ${fmt(mix.pix.gross)} (${((mix.pix.gross / total) * 100).toFixed(0)}%)`,
-    `💵 Dinheiro ${fmt(mix.cash.gross)} (${((mix.cash.gross / total) * 100).toFixed(0)}%)`,
-  ].join("\n");
+
+  // Cada método ganha sua linha principal + breakdown opcional por provedor.
+  const mixLines: string[] = [];
+  if (total === 0) {
+    mixLines.push("—");
+  } else {
+    const lineFor = (
+      label: string,
+      icon: string,
+      bucket: { gross: number },
+      breakdown?: { pagbank: number; asaas: number; manual: number },
+    ) => {
+      mixLines.push(`${icon} ${label} ${fmt(bucket.gross)} (${((bucket.gross / total) * 100).toFixed(0)}%)`);
+      if (breakdown) {
+        const b = providerLine(breakdown);
+        if (b) mixLines.push(b);
+      }
+    };
+    lineFor("Crédito",  "💳", mix.credit, mix.credit.by_provider);
+    lineFor("Débito",   "💳", mix.debit,  mix.debit.by_provider);
+    lineFor("PIX",      "📱", mix.pix,    mix.pix.by_provider);
+    lineFor("Dinheiro", "💵", mix.cash);
+  }
+  const mixLine = mixLines.join("\n");
+
+  // Linha "esperado" — sempre mostra PagBank; mostra Asaas se valor > 0
+  const expectedParts = [`PagBank: ${fmt(kpis.revenue.expected_from_pagbank)}`];
+  if (kpis.revenue.expected_from_asaas > 0) {
+    expectedParts.push(`Asaas: ${fmt(kpis.revenue.expected_from_asaas)}`);
+  }
+  const expectedLine = `🏦 Esperado: ${expectedParts.join(" | ")}`;
 
   const sections: string[] = [
     `*Fechamento NP Hair Express*`,
     `_${ddmm}_`,
     "",
     `💰 *Faturamento bruto:* *${fmt(kpis.revenue.gross)}*`,
-    `   Líquido: ${fmt(kpis.revenue.net)} · PagBank esperado: ${fmt(kpis.revenue.expected_from_pagbank)}`,
+    `   Líquido: ${fmt(kpis.revenue.net)}`,
+    expectedLine,
     `📊 *Atendimentos:* ${kpis.bookings.count} · Ticket médio: ${fmt(kpis.bookings.average_ticket)}`,
     `🆕 Novos: ${kpis.new_vs_returning.new_count} (${fmt(kpis.new_vs_returning.new_revenue)}) · Retornos: ${kpis.new_vs_returning.returning_count}`,
     `🔁 vs média 7d: receita ${pct(kpis.revenue.gross, kpis.seven_day_average.revenue)} · atend. ${pct(kpis.bookings.count, kpis.seven_day_average.bookings)}`,
@@ -73,6 +110,9 @@ export function renderMarkdown(input: RenderInput): string {
 
   if (pagbankUnavailable) {
     sections.push("", `⚠️ _PagBank indisponível — relatório sem cruzamento bancário_`);
+  }
+  if (asaasUnavailable) {
+    sections.push("", `⚠️ _Asaas indisponível — relatório sem cruzamento de pagamentos online_`);
   }
 
   if (issueCount > 0) {

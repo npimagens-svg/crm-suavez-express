@@ -11,6 +11,17 @@ export interface HtmlInput {
   kpis: DailyKpis;
   issues: ClosureIssue[];
   pagbankUnavailable?: boolean;
+  asaasUnavailable?: boolean;
+}
+
+function providerSubline(by: { pagbank: number; asaas: number; manual: number }): string {
+  const parts: string[] = [];
+  if (by.pagbank > 0) parts.push(`PagBank ${fmt(by.pagbank)}`);
+  if (by.asaas   > 0) parts.push(`Asaas online ${fmt(by.asaas)}`);
+  if (by.manual  > 0) parts.push(`Manual ${fmt(by.manual)}`);
+  return parts.length === 0
+    ? ""
+    : `<span class="provider-breakdown"> · ${parts.join(" · ")}</span>`;
 }
 
 function escapeHtml(s: string): string {
@@ -23,7 +34,7 @@ function escapeHtml(s: string): string {
 }
 
 export function renderHtml(input: HtmlInput): string {
-  const { date, kpis, issues, pagbankUnavailable } = input;
+  const { date, kpis, issues, pagbankUnavailable, asaasUnavailable } = input;
   const [y, m, d] = date.split("-");
   const ddmm = `${d}/${m}/${y}`;
 
@@ -50,7 +61,11 @@ export function renderHtml(input: HtmlInput): string {
   <section class="summary">
     <div><strong>Faturamento bruto:</strong> ${fmt(kpis.revenue.gross)}</div>
     <div><strong>Líquido:</strong> ${fmt(kpis.revenue.net)}</div>
-    <div><strong>PagBank esperado:</strong> ${fmt(kpis.revenue.expected_from_pagbank)}</div>
+    <div><strong>Esperado:</strong> PagBank ${fmt(kpis.revenue.expected_from_pagbank)}${
+      kpis.revenue.expected_from_asaas > 0
+        ? ` · Asaas ${fmt(kpis.revenue.expected_from_asaas)}`
+        : ""
+    }</div>
     <div><strong>Atendimentos:</strong> ${kpis.bookings.count} · Ticket médio ${fmt(kpis.bookings.average_ticket)}</div>
     <div><strong>Novos:</strong> ${kpis.new_vs_returning.new_count} (${fmt(kpis.new_vs_returning.new_revenue)}) · <strong>Retornos:</strong> ${kpis.new_vs_returning.returning_count}</div>
   </section>
@@ -67,9 +82,9 @@ export function renderHtml(input: HtmlInput): string {
 
   <h3>Mix de pagamento</h3>
   <ul>
-    <li>Crédito: ${fmt(kpis.payment_mix.credit.gross)} (${kpis.payment_mix.credit.count})</li>
-    <li>Débito: ${fmt(kpis.payment_mix.debit.gross)} (${kpis.payment_mix.debit.count})</li>
-    <li>PIX: ${fmt(kpis.payment_mix.pix.gross)} (${kpis.payment_mix.pix.count})</li>
+    <li>Crédito: ${fmt(kpis.payment_mix.credit.gross)} (${kpis.payment_mix.credit.count})${providerSubline(kpis.payment_mix.credit.by_provider)}</li>
+    <li>Débito: ${fmt(kpis.payment_mix.debit.gross)} (${kpis.payment_mix.debit.count})${providerSubline(kpis.payment_mix.debit.by_provider)}</li>
+    <li>PIX: ${fmt(kpis.payment_mix.pix.gross)} (${kpis.payment_mix.pix.count})${providerSubline(kpis.payment_mix.pix.by_provider)}</li>
     <li>Dinheiro: ${fmt(kpis.payment_mix.cash.gross)} (${kpis.payment_mix.cash.count})</li>
   </ul>
   <p>Taxa real de cartão: ${fmt(kpis.real_card_fee.total)}</p>
@@ -82,6 +97,7 @@ export function renderHtml(input: HtmlInput): string {
   </ul>
 
   ${pagbankUnavailable ? '<p class="warn">⚠️ PagBank indisponível — sem cruzamento bancário</p>' : ""}
+  ${asaasUnavailable ? '<p class="warn">⚠️ Asaas indisponível — sem cruzamento de pagamentos online</p>' : ""}
 
   ${
     issues.length > 0
