@@ -234,18 +234,30 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
       generated_by: "cron",
     }, { onConflict: "salon_id,report_date" });
 
-    for (const issue of issues) {
-      await supa.from("closure_issues").insert({
-        salon_id: salonId,
-        comanda_id: issue.comanda_id ?? null,
-        professional_id: issue.professional_id ?? null,
-        detected_date: startDate,
-        issue_type: issue.type,
-        severity: issue.severity,
-        description: issue.description,
-        expected_value: issue.expected_value ?? null,
-        actual_value: issue.actual_value ?? null,
-      });
+    // Idempotência: remove issues 'open' do mesmo dia antes de re-inserir.
+    // Preserva issues in_correction/resolved/marked_resolved/ignored/auto_resolved
+    // pra não atropelar trabalho humano em curso.
+    await supa
+      .from("closure_issues")
+      .delete()
+      .eq("salon_id", salonId)
+      .eq("detected_date", startDate)
+      .eq("status", "open");
+
+    if (issues.length > 0) {
+      await supa.from("closure_issues").insert(
+        issues.map((issue) => ({
+          salon_id: salonId,
+          comanda_id: issue.comanda_id ?? null,
+          professional_id: issue.professional_id ?? null,
+          detected_date: startDate,
+          issue_type: issue.type,
+          severity: issue.severity,
+          description: issue.description,
+          expected_value: issue.expected_value ?? null,
+          actual_value: issue.actual_value ?? null,
+        }))
+      );
     }
   }
 
