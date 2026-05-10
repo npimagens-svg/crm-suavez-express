@@ -4,7 +4,7 @@ import { renderMarkdown } from "../markdown.ts";
 import type { DailyKpis, ClosureIssue } from "../types.ts";
 
 const KPIS: DailyKpis = {
-  revenue: { gross: 1840, net: 1810, expected_from_pagbank: 1820 },
+  revenue: { gross: 1840, net: 1810, expected_from_pagbank: 1820, expected_from_asaas: 0 },
   bookings: { count: 23, average_ticket: 80 },
   by_professional: [
     { id: "p1", name: "Wanessa Ribeiro", revenue: 420, count: 5, top_service: { name: "Escova", count: 3 } },
@@ -16,9 +16,9 @@ const KPIS: DailyKpis = {
     { id: "s3", name: "Hidratação", count: 3, revenue: 120 },
   ],
   payment_mix: {
-    credit: { count: 8, gross: 720, net: 696 },
-    debit:  { count: 5, gross: 320, net: 317 },
-    pix:    { count: 7, gross: 580, net: 580 },
+    credit: { count: 8, gross: 720, net: 696, by_provider: { pagbank: 720, asaas: 0, manual: 0 } },
+    debit:  { count: 5, gross: 320, net: 317, by_provider: { pagbank: 320, asaas: 0, manual: 0 } },
+    pix:    { count: 7, gross: 580, net: 580, by_provider: { pagbank: 0, asaas: 200, manual: 380 } },
     cash:   { count: 3, gross: 220, net: 220 },
   },
   real_card_fee: { total: 27, by_brand: { CREDIT_VISA: 24, DEBIT_MASTERCARD: 3 } },
