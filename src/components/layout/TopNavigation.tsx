@@ -11,6 +11,7 @@ import {
   Scissors,
   Gift,
   ListOrdered,
+  ClipboardCheck,
 } from "lucide-react";
 
 interface NavItem {
@@ -81,14 +82,23 @@ const navItems: NavItem[] = [
       { title: "Fidelidade", url: "/marketing?tab=fidelidade" },
     ]
   },
-  { 
-    title: "Relatórios", 
-    url: "/relatorios", 
+  {
+    title: "Relatórios",
+    url: "/relatorios",
     icon: BarChart3,
   },
-  { 
-    title: "Configurações", 
-    url: "/configuracoes", 
+  {
+    title: "Fechamentos",
+    url: "/fechamentos",
+    icon: ClipboardCheck,
+    subItems: [
+      { title: "Diários", url: "/fechamentos" },
+      { title: "Pendências", url: "/pendencias" },
+    ],
+  },
+  {
+    title: "Configurações",
+    url: "/configuracoes",
     icon: Settings,
   },
 ];
