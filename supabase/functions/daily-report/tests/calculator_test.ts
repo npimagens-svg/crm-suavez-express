@@ -1,5 +1,5 @@
 import { assertEquals } from "std/assert/mod.ts";
-import { calculateRevenue } from "../calculator.ts";
+import { calculateRevenue, calculateBookings } from "../calculator.ts";
 import normalDay from "./fixtures/normal_day.json" with { type: "json" };
 
 Deno.test("calculateRevenue: soma bruto de comandas pagas", () => {
@@ -32,4 +32,20 @@ Deno.test("calculateRevenue: expected_from_pagbank soma valor_total_transacao", 
   ];
   const result = calculateRevenue([], pagbank);
   assertEquals(result.expected_from_pagbank, 304);
+});
+
+Deno.test("calculateBookings: conta apenas comandas pagas", () => {
+  const result = calculateBookings(normalDay.comandas);
+  assertEquals(result.count, 5);
+});
+
+Deno.test("calculateBookings: ticket médio = bruto/count", () => {
+  const result = calculateBookings(normalDay.comandas);
+  assertEquals(result.average_ticket, 544 / 5); // 108.8
+});
+
+Deno.test("calculateBookings: dia vazio retorna count=0 e ticket=0", () => {
+  const result = calculateBookings([]);
+  assertEquals(result.count, 0);
+  assertEquals(result.average_ticket, 0);
 });
