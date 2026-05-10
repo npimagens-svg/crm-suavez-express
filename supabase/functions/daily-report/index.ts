@@ -243,11 +243,28 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     balance,
   }));
 
+  // Mapeia client_id → name pra mostrar candidatos amigáveis em Asaas pending.
+  const clientIds = [...new Set(
+    comandas.map(c => c.client_id).filter((x): x is string => !!x)
+  )];
+  const clientNameById: Record<string, string> = {};
+  if (clientIds.length > 0) {
+    const { data: clientRows } = await supa
+      .from("clients")
+      .select("id, name")
+      .in("id", clientIds);
+    // deno-lint-ignore no-explicit-any
+    for (const cr of (clientRows ?? []) as any[]) {
+      clientNameById[cr.id] = cr.name;
+    }
+  }
+
   const issues = runAllDetectors({
     comandas,
     pagbank: allTx,
     credits: balances,
     asaas: allAsaas,
+    clientNameById,
   });
 
   // 9) Persistir daily_reports + closure_issues (idempotente, somente 1 dia)

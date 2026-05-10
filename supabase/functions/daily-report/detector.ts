@@ -16,13 +16,19 @@ const PAYMENT_METHOD_TO_BRAND: Record<number, string> = {
 export function detectPaymentMethodMismatch(
   comandas: ComandaWithItems[],
   pagbank: PagBankTransaction[],
+  asaas: AsaasPayment[] = [],
 ): ClosureIssue[] {
   // ALGORITMO AGREGADO: compara soma por método (credit/debit).
   // Por que não 1-a-1? Vários payments têm o mesmo valor (manicure R$47,
   // escova R$77...). Match por valor sozinho gera false positives gigantes.
+  //
+  // IMPORTANTE — Asaas: pagamentos online via Asaas entram no sistema como
+  // credit_card/pix mas NÃO passam pela maquininha PagBank. Logo, antes de
+  // comparar com PagBank, subtraimos do total do sistema o que veio via Asaas
+  // CONFIRMADO. Assim o "esperado_pagbank" é apenas a parte presencial.
+  //
   // PIX: pode vir via PagBank OU outro provedor (não bate sempre).
   // Cash: não vem no PagBank (presencial).
-  // Logo, só checamos credit/debit no agregado.
   const TOLERANCE = 1.00; // R$ 1 de tolerância (arredondamento de taxa)
   const issues: ClosureIssue[] = [];
 
@@ -36,6 +42,16 @@ export function detectPaymentMethodMismatch(
     }
   }
 
+  // Asaas CONFIRMED/RECEIVED do tipo cartão — descontar do esperado PagBank
+  const asaasConfirmed = asaas.filter(a =>
+    ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"].includes(a.status)
+  );
+  const asaasByMethod: Record<string, number> = { credit: 0, debit: 0 };
+  for (const a of asaasConfirmed) {
+    if (a.billingType === "CREDIT_CARD") asaasByMethod.credit += Number(a.value);
+    if (a.billingType === "DEBIT_CARD")  asaasByMethod.debit  += Number(a.value);
+  }
+
   const pagbankByMethod: Record<string, number> = { credit: 0, debit: 0 };
   for (const t of pagbank) {
     const m = PAYMENT_METHOD_TO_BRAND[t.meio_pagamento];
@@ -45,30 +61,36 @@ export function detectPaymentMethodMismatch(
   }
 
   for (const method of ["credit", "debit"] as const) {
-    const diff = systemByMethod[method] - pagbankByMethod[method];
+    // Esperado da maquininha = sistema − Asaas confirmado (mesmo método).
+    const sysTotal = systemByMethod[method];
+    const asaasPart = asaasByMethod[method];
+    const expectedPagbank = sysTotal - asaasPart;
+    const pbTotal = pagbankByMethod[method];
+    const diff = expectedPagbank - pbTotal;
+
     if (Math.abs(diff) > TOLERANCE) {
       const label = method === "credit" ? "crédito" : "débito";
       const fmt = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
-      const sysTotal = systemByMethod[method];
-      const pbTotal = pagbankByMethod[method];
 
-      // Texto em linguagem clara pra Vanessa entender o que aconteceu
+      const asaasNote = asaasPart > 0
+        ? ` (descontando ${fmt(asaasPart)} do Asaas online)`
+        : "";
+
       let humanDescription: string;
       if (diff > 0) {
-        // sistema diz que recebeu MAIS no cartão do que entrou de fato
+        // sistema diz que recebeu MAIS no cartão presencial do que a maquininha
         humanDescription =
-          `Hoje o sistema registrou ${fmt(sysTotal)} no cartão de ${label}, ` +
-          `mas a maquininha do PagBank só recebeu ${fmt(pbTotal)}. ` +
-          `Sobraram ${fmt(diff)} no sistema — provavelmente alguma comanda foi lançada ` +
-          `como ${label} mas o cliente pagou de outro jeito (PIX, dinheiro ou outro cartão).`;
+          `Hoje o sistema diz que recebeu ${fmt(expectedPagbank)} no cartão de ${label} pela maquininha${asaasNote}, ` +
+          `mas o PagBank só registrou ${fmt(pbTotal)}. ` +
+          `Sobraram ${fmt(Math.abs(diff))} no sistema — provavelmente alguma comanda foi lançada ` +
+          `como ${label} mas o cliente pagou em PIX, dinheiro ou outro cartão.`;
       } else {
-        // PagBank tem MAIS do que o sistema (faltou registrar)
+        // PagBank tem MAIS do que o sistema (faltou registrar presencial)
         humanDescription =
           `A maquininha do PagBank recebeu ${fmt(pbTotal)} no cartão de ${label} hoje, ` +
-          `mas o sistema só registrou ${fmt(sysTotal)}. ` +
+          `mas o sistema só registrou ${fmt(expectedPagbank)} presencial${asaasNote}. ` +
           `Faltam ${fmt(Math.abs(diff))} pra bater — provavelmente alguma comanda ` +
-          `foi lançada como outra forma de pagamento (PIX, dinheiro) mas o cliente ` +
-          `pagou no ${label}.`;
+          `foi lançada com outra forma de pagamento mas o cliente pagou no ${label}.`;
       }
 
       issues.push({
@@ -77,8 +99,10 @@ export function detectPaymentMethodMismatch(
         description: humanDescription,
         expected_value: {
           method,
-          system_total: systemByMethod[method],
-          pagbank_total: pagbankByMethod[method],
+          system_total: sysTotal,
+          asaas_subtracted: asaasPart,
+          expected_pagbank: expectedPagbank,
+          pagbank_total: pbTotal,
           diff,
         },
       });
@@ -305,10 +329,13 @@ export function detectDuplicateServiceSameClient(comandas: ComandaWithItems[]): 
 // Asaas pending (medium)
 // =============================================================================
 
-export function detectAsaasPaymentPending(asaasPayments: AsaasPayment[]): ClosureIssue[] {
+export function detectAsaasPaymentPending(
+  asaasPayments: AsaasPayment[],
+  comandas: ComandaWithItems[] = [],
+  clientNameById: Record<string, string> = {},
+): ClosureIssue[] {
   const fmt = (n: number) => `R$ ${Number(n).toFixed(2).replace(".", ",")}`;
   const fmtDate = (iso: string) => {
-    // YYYY-MM-DD → DD/MM
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
     return m ? `${m[3]}/${m[2]}` : iso;
   };
@@ -320,17 +347,53 @@ export function detectAsaasPaymentPending(asaasPayments: AsaasPayment[]): Closur
     UNDEFINED: "pagamento",
   };
 
+  // Indexa comandas pagas do dia por VALOR (R$ X → lista de comandas) pra cruzamento.
+  // Match exato (.01 tolerância) — se cobrança Asaas R$87 e tem comanda paga R$87
+  // no dia, mostra como provável cliente.
+  const comandasByValue = new Map<string, Array<{ num: number; client: string; method: string }>>();
+  for (const c of comandas.filter(x => x.is_paid)) {
+    const key = Number(c.total).toFixed(2);
+    const client = c.client_id ? (clientNameById[c.client_id] ?? "cliente sem nome") : "cliente sem nome";
+    const method = c.payments.length > 0
+      ? c.payments.map(p => translateMethod(p.payment_method)).join("/")
+      : "—";
+    if (!comandasByValue.has(key)) comandasByValue.set(key, []);
+    comandasByValue.get(key)!.push({ num: c.comanda_number, client, method });
+  }
+
   return asaasPayments
     .filter(p => p.status === "PENDING" || p.status === "OVERDUE")
     .map(p => {
       const label = billingLabel[p.billingType] ?? p.billingType ?? "pagamento";
       const when = fmtDate(p.dateCreated);
+      const valueKey = Number(p.value).toFixed(2);
+      const candidates = comandasByValue.get(valueKey) ?? [];
+
+      let humanDescription: string;
+      if (candidates.length === 0) {
+        humanDescription =
+          `Cobrança Asaas de ${fmt(Number(p.value))} (${label}) criada em ${when} ainda está PENDENTE ` +
+          `e não bate com nenhuma comanda paga do dia. Cliente pode ter desistido — ` +
+          `vale cancelar a cobrança no Asaas.`;
+      } else if (candidates.length === 1) {
+        const c = candidates[0];
+        humanDescription =
+          `Cobrança Asaas de ${fmt(Number(p.value))} (${label}) pendente. ` +
+          `Provavelmente é a Comanda #${c.num} de ${c.client} (paga ${c.method}). ` +
+          `Confere e fecha a cobrança no Asaas.`;
+      } else {
+        const list = candidates.slice(0, 3)
+          .map(c => `#${c.num} ${c.client} (${c.method})`).join(" · ");
+        humanDescription =
+          `Cobrança Asaas de ${fmt(Number(p.value))} (${label}) pendente. ` +
+          `Hoje teve ${candidates.length} comandas do mesmo valor: ${list}${candidates.length > 3 ? "..." : ""}. ` +
+          `Identifica qual cliente é e fecha a cobrança.`;
+      }
+
       return {
         type: "asaas_payment_pending" as const,
         severity: "medium" as const,
-        description:
-          `Cobrança Asaas de ${fmt(Number(p.value))} criada em ${when} via ${label} ainda ` +
-          `não foi paga online. Cliente pode ter pago no salão presencial — confira nas comandas.`,
+        description: humanDescription,
         actual_value: {
           asaas_id: p.id,
           status: p.status,
@@ -338,9 +401,19 @@ export function detectAsaasPaymentPending(asaasPayments: AsaasPayment[]): Closur
           value: p.value,
           date_created: p.dateCreated,
           description: p.description ?? null,
+          candidate_comandas: candidates.map(c => c.num),
         },
       };
     });
+}
+
+function translateMethod(m: string): string {
+  const t = String(m).toLowerCase();
+  if (t === "credit"     || t === "credit_card") return "crédito";
+  if (t === "debit"      || t === "debit_card")  return "débito";
+  if (t === "pix")  return "PIX";
+  if (t === "cash") return "dinheiro";
+  return m;
 }
 
 // =============================================================================
@@ -352,11 +425,12 @@ export interface DetectorInput {
   pagbank: PagBankTransaction[];
   credits: Array<{ client_id: string; balance: number }>;
   asaas?: AsaasPayment[];
+  clientNameById?: Record<string, string>;
 }
 
 export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
   const all = [
-    ...detectPaymentMethodMismatch(input.comandas, input.pagbank),
+    ...detectPaymentMethodMismatch(input.comandas, input.pagbank, input.asaas ?? []),
     ...detectValueMismatch(input.comandas),
     ...detectPaidWithoutPayment(input.comandas),
     ...detectPagbankOrphanTransaction(input.comandas, input.pagbank),
@@ -364,7 +438,7 @@ export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
     ...detectProfessionalMissing(input.comandas),
     ...detectPaymentWithoutPaidFlag(input.comandas),
     ...detectCashbackOverdraft(input.credits),
-    ...detectAsaasPaymentPending(input.asaas ?? []),
+    ...detectAsaasPaymentPending(input.asaas ?? [], input.comandas, input.clientNameById ?? {}),
     ...detectDuplicateServiceSameClient(input.comandas),
   ];
   const sev = { high: 0, medium: 1, low: 2 } as const;
