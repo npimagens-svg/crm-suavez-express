@@ -146,16 +146,18 @@ export default function Fila() {
           })
           .eq("id", comanda.id);
 
-        // 5. Register payment in comanda (already paid online)
+        // 5. Register payment in comanda (already paid online via Asaas)
         if (selectedEntry.source === "online" && selectedEntry.payment_status === "confirmed") {
           const payMethod = selectedEntry.payment_method === "credit_card" ? "credit_card" : "pix";
           await supabase.from("payments").insert({
             comanda_id: comanda.id,
             salon_id: salonId,
             payment_method: payMethod,
+            payment_provider: "asaas", // pagamento online via fila → sempre Asaas
             amount: selectedEntry.service.price,
             fee_amount: 0,
             net_amount: selectedEntry.service.price,
+            notes: `Pagamento online via Asaas - fila ${selectedEntry.id}`,
           });
 
           // Mark comanda as paid and closed

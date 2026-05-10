@@ -1152,10 +1152,18 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
             netAmount = payment.amount - feeAmount;
           }
 
+          // Identifica gateway: cartão presencial = PagBank (maquininha do salão)
+          // PIX/dinheiro lançado manualmente = "manual"
+          // Asaas só vem via Fila.tsx (pagamento online), não passa por aqui
+          const provider = (payment.method === 'credit_card' || payment.method === 'debit_card')
+            ? 'pagbank'
+            : 'manual';
+
           await supabase.from("payments").insert({
             comanda_id: comanda.id,
             salon_id: salonId,
             payment_method: payment.method as any,
+            payment_provider: provider,
             amount: payment.amount,
             notes: payment.info,
             bank_account_id: payment.method === 'pix' ? payment.bankAccountId : null,
