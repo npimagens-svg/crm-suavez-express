@@ -3424,7 +3424,8 @@ Quando uma fase fechar e for hora de subir pra Vercel:
 git push origin feat/fechamento-diario:main
 
 # 2) Sync Fork via API GitHub
-TOKEN='${GH_PAT_SUAVEZEXPRESS}'
+#    Token: ver reference_github_token_suavezexpress.md (memoria local)
+TOKEN="${GH_PAT_SUAVEZEXPRESS}"
 curl -s -X POST "https://api.github.com/repos/nphairexpress/suavezexpress/merge-upstream" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/vnd.github+json" \
@@ -3432,10 +3433,15 @@ curl -s -X POST "https://api.github.com/repos/nphairexpress/suavezexpress/merge-
   -d '{"branch":"main"}'
 
 # 3) Acompanhar deploy Vercel
-VT='${VERCEL_TOKEN_SUAVEZEXPRESS}'
+#    Token: ver reference_vercel_token_suavezexpress.md (memoria local)
+VT="${VERCEL_TOKEN_SUAVEZEXPRESS}"
 curl -s "https://api.vercel.com/v6/deployments?app=suavezexpress&limit=3" \
   -H "Authorization: Bearer $VT" | jq '.deployments[] | {state, url, createdAt}'
 ```
+
+> ⚠️ NUNCA committar os tokens em plain text — usar env vars locais. Tokens
+> reais ficam nas memorias `reference_github_token_suavezexpress.md` e
+> `reference_vercel_token_suavezexpress.md`.
 
 Esperar `state: "READY"` antes de testar em produção.
 
