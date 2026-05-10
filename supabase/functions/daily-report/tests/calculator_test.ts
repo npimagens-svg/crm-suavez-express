@@ -3,6 +3,7 @@ import {
   calculateRevenue,
   calculateBookings,
   calculateByProfessional,
+  calculateTopServices,
 } from "../calculator.ts";
 import normalDay from "./fixtures/normal_day.json" with { type: "json" };
 
@@ -79,4 +80,20 @@ Deno.test("calculateByProfessional: ordena por revenue desc", () => {
   assertEquals(result[0].id, "p_wanessa");
   assertEquals(result[1].id, "p_julia");
   assertEquals(result[2].id, "p_marcilene");
+});
+
+Deno.test("calculateTopServices: agrega count + revenue por serviço", () => {
+  const result = calculateTopServices(normalDay.comandas);
+  const escova = result.find(s => s.name === "Escova");
+  // c2 (1×80) + c4 (1×80) + c5 NÃO (progressiva). Total: 2 escovas, 160 reais
+  assertEquals(escova?.count, 2);
+  assertEquals(escova?.revenue, 160);
+});
+
+Deno.test("calculateTopServices: retorna top 3 ordenado por count", () => {
+  const result = calculateTopServices(normalDay.comandas);
+  assertEquals(result.length <= 3, true);
+  for (let i = 1; i < result.length; i++) {
+    assertEquals(result[i - 1].count >= result[i].count, true);
+  }
 });

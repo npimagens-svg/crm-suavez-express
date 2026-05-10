@@ -68,3 +68,21 @@ export function calculateByProfessional(
 
   return result.sort((a, b) => b.revenue - a.revenue);
 }
+
+export function calculateTopServices(comandas: ComandaWithItems[]): ServiceStats[] {
+  const paid = comandas.filter(c => c.is_paid);
+  const byService = new Map<string, { name: string; count: number; revenue: number }>();
+  for (const c of paid) {
+    for (const item of c.items) {
+      const k = item.service_id;
+      if (!byService.has(k)) byService.set(k, { name: item.service_name, count: 0, revenue: 0 });
+      const agg = byService.get(k)!;
+      agg.count += item.quantity;
+      agg.revenue += Number(item.total_price);
+    }
+  }
+  return [...byService.entries()]
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+}
