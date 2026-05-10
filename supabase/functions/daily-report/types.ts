@@ -94,6 +94,15 @@ export interface PagBankTransaction {
   taxa_intermediacao: number;
   data_prevista_pagamento: string;
   quantidade_parcelas: number;
+  // Identificadores únicos (pra matching com payment do sistema)
+  nsu?: string;                 // Numero Sequencial Unico - ID na maquininha
+  tid?: string;                 // ID de transacao PagBank
+  codigo_autorizacao?: string;
+  data_venda_ajuste?: string;   // YYYY-MM-DD da venda
+  hora_venda_ajuste?: string;   // HH:MM:SS
+  instituicao_financeira?: string; // VISA, MASTERCARD...
+  cartao_bin?: string;          // 6 primeiros dígitos
+  cartao_holder?: string;       // ultimos 4 dígitos
 }
 
 export interface AsaasPayment {

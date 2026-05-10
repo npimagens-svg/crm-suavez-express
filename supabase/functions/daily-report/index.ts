@@ -5,6 +5,7 @@ import { createClient } from "supabase";
 import { z } from "zod";
 import { fetchPagBankTransactional } from "./pagbank.ts";
 import { fetchAsaasPayments } from "./asaas.ts";
+import { matchPagbankToPayments } from "./match-pagbank.ts";
 import {
   calculateBookings,
   calculateByProfessional,
@@ -173,6 +174,12 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     const r = await fetchPagBankTransactional(day, { user: pagbankUser, token: pagbankToken });
     if (r.unavailable) pagbankUnavailable = true;
     allTx.push(...r.transactions);
+  }
+
+  // 5a-bis) Match exato PagBank ↔ payments cartão (salva NSU em payments).
+  // Idempotente: payments já matched são pulados.
+  if (allTx.length > 0) {
+    await matchPagbankToPayments(supa, salonId, startDate, endDate, allTx);
   }
 
   // 5b) Asaas — 1 chamada cobrindo o range inteiro (filtra por dateCreated)
