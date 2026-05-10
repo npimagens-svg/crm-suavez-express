@@ -1,5 +1,5 @@
 // Edge Function daily-report — detectores de inconsistências de fechamento
-import type { ClosureIssue, ComandaWithItems, PagBankTransaction } from "./types.ts";
+import type { AsaasPayment, ClosureIssue, ComandaWithItems, PagBankTransaction } from "./types.ts";
 
 // Mapa meio_pagamento (PagBank EDI) → método do sistema
 const PAYMENT_METHOD_TO_BRAND: Record<number, string> = {
@@ -302,6 +302,48 @@ export function detectDuplicateServiceSameClient(comandas: ComandaWithItems[]): 
 }
 
 // =============================================================================
+// Asaas pending (medium)
+// =============================================================================
+
+export function detectAsaasPaymentPending(asaasPayments: AsaasPayment[]): ClosureIssue[] {
+  const fmt = (n: number) => `R$ ${Number(n).toFixed(2).replace(".", ",")}`;
+  const fmtDate = (iso: string) => {
+    // YYYY-MM-DD → DD/MM
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+    return m ? `${m[3]}/${m[2]}` : iso;
+  };
+  const billingLabel: Record<string, string> = {
+    PIX: "PIX",
+    CREDIT_CARD: "cartão de crédito",
+    DEBIT_CARD: "cartão de débito",
+    BOLETO: "boleto",
+    UNDEFINED: "pagamento",
+  };
+
+  return asaasPayments
+    .filter(p => p.status === "PENDING" || p.status === "OVERDUE")
+    .map(p => {
+      const label = billingLabel[p.billingType] ?? p.billingType ?? "pagamento";
+      const when = fmtDate(p.dateCreated);
+      return {
+        type: "asaas_payment_pending" as const,
+        severity: "medium" as const,
+        description:
+          `Cobrança Asaas de ${fmt(Number(p.value))} criada em ${when} via ${label} ainda ` +
+          `não foi paga online. Cliente pode ter pago no salão presencial — confira nas comandas.`,
+        actual_value: {
+          asaas_id: p.id,
+          status: p.status,
+          billing_type: p.billingType,
+          value: p.value,
+          date_created: p.dateCreated,
+          description: p.description ?? null,
+        },
+      };
+    });
+}
+
+// =============================================================================
 // AGREGADOR
 // =============================================================================
 
@@ -309,6 +351,7 @@ export interface DetectorInput {
   comandas: ComandaWithItems[];
   pagbank: PagBankTransaction[];
   credits: Array<{ client_id: string; balance: number }>;
+  asaas?: AsaasPayment[];
 }
 
 export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
@@ -321,6 +364,7 @@ export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
     ...detectProfessionalMissing(input.comandas),
     ...detectPaymentWithoutPaidFlag(input.comandas),
     ...detectCashbackOverdraft(input.credits),
+    ...detectAsaasPaymentPending(input.asaas ?? []),
     ...detectDuplicateServiceSameClient(input.comandas),
   ];
   const sev = { high: 0, medium: 1, low: 2 } as const;

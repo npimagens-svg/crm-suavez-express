@@ -1,6 +1,7 @@
 // Testes da Edge Function daily-report — detector
 import { assertEquals } from "std/assert/mod.ts";
 import {
+  detectAsaasPaymentPending,
   detectCashbackOverdraft,
   detectComandaOpen24h,
   detectDuplicateServiceSameClient,
@@ -121,6 +122,34 @@ Deno.test("detectDuplicateServiceSameClient: 3 escovas (Dandara)", () => {
   const issues = detectDuplicateServiceSameClient(divergent.comandas);
   const dandara = issues.find((i) => i.comanda_id === "c90");
   assertEquals(dandara?.severity, "low");
+});
+
+Deno.test("detectAsaasPaymentPending: emite issue pra PENDING+OVERDUE", () => {
+  const asaas = [
+    { id: "p1", status: "PENDING",   billingType: "PIX",         value: 100, netValue: 99, customer: "c1", dateCreated: "2026-05-09" },
+    { id: "p2", status: "RECEIVED",  billingType: "PIX",         value: 200, netValue: 199, customer: "c2", dateCreated: "2026-05-09" },
+    { id: "p3", status: "OVERDUE",   billingType: "CREDIT_CARD", value: 80,  netValue: 78, customer: "c3", dateCreated: "2026-05-08" },
+    { id: "p4", status: "CONFIRMED", billingType: "PIX",         value: 50,  netValue: 49, customer: "c4", dateCreated: "2026-05-09" },
+  ];
+  const issues = detectAsaasPaymentPending(asaas);
+  assertEquals(issues.length, 2);
+  assertEquals(issues[0].severity, "medium");
+  assertEquals(issues[0].type, "asaas_payment_pending");
+});
+
+Deno.test("detectAsaasPaymentPending: descreve com valor e data", () => {
+  const asaas = [
+    { id: "p1", status: "PENDING", billingType: "PIX", value: 100, netValue: 99, customer: "c1", dateCreated: "2026-05-09" },
+  ];
+  const issues = detectAsaasPaymentPending(asaas);
+  const desc = issues[0].description;
+  if (!desc.includes("R$ 100,00") || !desc.includes("09/05") || !desc.includes("PIX")) {
+    throw new Error("description não menciona valor/data/método: " + desc);
+  }
+});
+
+Deno.test("detectAsaasPaymentPending: lista vazia → 0 issues", () => {
+  assertEquals(detectAsaasPaymentPending([]).length, 0);
 });
 
 // =============================================================================
