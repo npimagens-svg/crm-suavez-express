@@ -93,7 +93,8 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
   let comQuery = supa
     .from("comandas")
     .select(`
-      id, salon_id, client_id, professional_id, comanda_number, total, is_paid,
+      id, salon_id, client_id, professional_id, comanda_number,
+      total, subtotal, discount, is_paid,
       created_at, closed_at,
       items:comanda_items(service_id, quantity, unit_price, total_price, services(name)),
       payments(id, amount, payment_method, fee_amount, net_amount, installments)
@@ -115,6 +116,8 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     professional_id: c.professional_id,
     comanda_number: c.comanda_number,
     total: Number(c.total),
+    subtotal: c.subtotal != null ? Number(c.subtotal) : null,
+    discount: c.discount != null ? Number(c.discount) : null,
     is_paid: c.is_paid,
     created_at: c.created_at,
     closed_at: c.closed_at,

@@ -47,14 +47,34 @@ export function detectPaymentMethodMismatch(
   for (const method of ["credit", "debit"] as const) {
     const diff = systemByMethod[method] - pagbankByMethod[method];
     if (Math.abs(diff) > TOLERANCE) {
-      const label = method === "credit" ? "Crédito" : "Débito";
+      const label = method === "credit" ? "crédito" : "débito";
+      const fmt = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
+      const sysTotal = systemByMethod[method];
+      const pbTotal = pagbankByMethod[method];
+
+      // Texto em linguagem clara pra Vanessa entender o que aconteceu
+      let humanDescription: string;
+      if (diff > 0) {
+        // sistema diz que recebeu MAIS no cartão do que entrou de fato
+        humanDescription =
+          `Hoje o sistema registrou ${fmt(sysTotal)} no cartão de ${label}, ` +
+          `mas a maquininha do PagBank só recebeu ${fmt(pbTotal)}. ` +
+          `Sobraram ${fmt(diff)} no sistema — provavelmente alguma comanda foi lançada ` +
+          `como ${label} mas o cliente pagou de outro jeito (PIX, dinheiro ou outro cartão).`;
+      } else {
+        // PagBank tem MAIS do que o sistema (faltou registrar)
+        humanDescription =
+          `A maquininha do PagBank recebeu ${fmt(pbTotal)} no cartão de ${label} hoje, ` +
+          `mas o sistema só registrou ${fmt(sysTotal)}. ` +
+          `Faltam ${fmt(Math.abs(diff))} pra bater — provavelmente alguma comanda ` +
+          `foi lançada como outra forma de pagamento (PIX, dinheiro) mas o cliente ` +
+          `pagou no ${label}.`;
+      }
+
       issues.push({
         type: "payment_method_mismatch",
         severity: "high",
-        description:
-          `${label}: sistema R$ ${systemByMethod[method].toFixed(2)} ≠ ` +
-          `PagBank R$ ${pagbankByMethod[method].toFixed(2)} ` +
-          `(${diff > 0 ? "+" : ""}R$ ${diff.toFixed(2)})`,
+        description: humanDescription,
         expected_value: {
           method,
           system_total: systemByMethod[method],
@@ -68,19 +88,47 @@ export function detectPaymentMethodMismatch(
 }
 
 export function detectValueMismatch(comandas: ComandaWithItems[]): ClosureIssue[] {
+  // Validação correta: subtotal == Σ items E total == subtotal − discount.
+  // Antes flagava (total ≠ Σ items) sem considerar discount → false positives
+  // em toda comanda com desconto (caso real #112 Rafaela mello R$17 desconto).
+  const fmt = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
   const issues: ClosureIssue[] = [];
   for (const c of comandas) {
     const itemsSum = c.items.reduce((s, i) => s + Number(i.total_price), 0);
-    if (Math.abs(itemsSum - Number(c.total)) > 0.01) {
+    const subtotal = Number(c.subtotal ?? c.total ?? 0);
+    const discount = Number(c.discount ?? 0);
+    const total = Number(c.total ?? 0);
+
+    // 1) subtotal não bate com Σ items (independe de desconto)
+    if (itemsSum > 0 && Math.abs(itemsSum - subtotal) > 0.01) {
       issues.push({
         type: "value_mismatch",
         severity: "high",
         description:
-          `Comanda #${c.comanda_number}: total R$${c.total} ≠ soma dos itens R$${itemsSum}`,
+          `Comanda #${c.comanda_number}: o subtotal está ${fmt(subtotal)} mas a soma dos serviços lançados ` +
+          `dá ${fmt(itemsSum)}. Diferença de ${fmt(Math.abs(subtotal - itemsSum))} — algum serviço foi alterado ` +
+          `depois ou o recálculo não foi feito.`,
         comanda_id: c.id,
         professional_id: c.professional_id ?? undefined,
-        expected_value: { total: itemsSum },
-        actual_value: { total: c.total },
+        expected_value: { items_sum: itemsSum, subtotal },
+        actual_value: { total, discount },
+      });
+      continue;
+    }
+
+    // 2) total não bate com subtotal − discount
+    if (Math.abs(total - (subtotal - discount)) > 0.01) {
+      issues.push({
+        type: "value_mismatch",
+        severity: "high",
+        description:
+          `Comanda #${c.comanda_number}: total ${fmt(total)} não bate com a conta ` +
+          `(subtotal ${fmt(subtotal)} − desconto ${fmt(discount)} = ${fmt(subtotal - discount)}). ` +
+          `Recalcule a comanda antes de fechar.`,
+        comanda_id: c.id,
+        professional_id: c.professional_id ?? undefined,
+        expected_value: { expected_total: subtotal - discount },
+        actual_value: { total, subtotal, discount },
       });
     }
   }
@@ -88,12 +136,15 @@ export function detectValueMismatch(comandas: ComandaWithItems[]): ClosureIssue[
 }
 
 export function detectPaidWithoutPayment(comandas: ComandaWithItems[]): ClosureIssue[] {
+  const fmt = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
   return comandas
-    .filter((c) => c.is_paid && c.payments.length === 0)
+    .filter((c) => c.is_paid && c.payments.length === 0 && Number(c.total) > 0)
     .map((c) => ({
       type: "paid_without_payment",
-      severity: "high",
-      description: `Comanda #${c.comanda_number} marcada como paga mas sem pagamento registrado`,
+      severity: "high" as const,
+      description:
+        `Comanda #${c.comanda_number} foi marcada como paga (${fmt(Number(c.total))}) mas não tem ` +
+        `nenhum pagamento registrado (dinheiro, PIX ou cartão). Foi cortesia ou faltou registrar?`,
       comanda_id: c.id,
       professional_id: c.professional_id ?? undefined,
       expected_value: { has_payment: true },
@@ -123,14 +174,28 @@ export function detectPagbankOrphanTransaction(
       consumed.add(match.id);
       continue;
     }
+    const fmtBr = (n: number) => `R$ ${Number(n).toFixed(2).replace(".", ",")}`;
+    const brandLabel: Record<string, string> = {
+      CREDIT_VISA: "Visa crédito",
+      CREDIT_MASTERCARD: "MasterCard crédito",
+      CREDIT_ELO: "Elo crédito",
+      DEBIT_VISA: "Visa débito",
+      DEBIT_MASTERCARD: "MasterCard débito",
+      DEBIT_ELO: "Elo débito",
+      PIX: "PIX",
+    };
+    const label = brandLabel[tx.arranjo_ur] ?? tx.arranjo_ur;
     issues.push({
       type: "pagbank_orphan_transaction",
       severity: "high",
       description:
-        `PagBank registrou ${tx.arranjo_ur} R$ ${Number(tx.valor_total_transacao).toFixed(2)} sem comanda equivalente no sistema`,
+        `A maquininha do PagBank recebeu ${fmtBr(tx.valor_total_transacao)} via ${label} ` +
+        `mas não tem comanda correspondente no sistema. Alguém recebeu o pagamento ` +
+        `sem registrar a comanda? Ou a comanda foi lançada com outra forma de pagamento?`,
       expected_value: { has_comanda: true },
       actual_value: {
         brand: tx.arranjo_ur,
+        brand_label: label,
         amount: tx.valor_total_transacao,
         method_code: tx.meio_pagamento,
         liquido: tx.valor_liquido_transacao,
@@ -146,14 +211,21 @@ export function detectPagbankOrphanTransaction(
 
 export function detectComandaOpen24h(comandas: ComandaWithItems[]): ClosureIssue[] {
   const cutoff = Date.now() - 24 * 3600 * 1000;
+  const fmt = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
   return comandas
     .filter((c) => !c.is_paid && new Date(c.created_at).getTime() < cutoff)
     .map((c) => {
       const hours = Math.round((Date.now() - new Date(c.created_at).getTime()) / 3600000);
+      const days = Math.floor(hours / 24);
+      const timeLabel = days >= 1
+        ? `${days} dia${days > 1 ? "s" : ""}`
+        : `${hours} horas`;
       return {
         type: "comanda_open_24h",
         severity: "medium" as const,
-        description: `Comanda #${c.comanda_number} aberta há ${hours}h sem fechamento`,
+        description:
+          `Comanda #${c.comanda_number} (${fmt(Number(c.total))}) está aberta há ${timeLabel} ` +
+          `sem ser fechada. Cliente foi embora sem pagar, esquecimento, ou pagamento por receber?`,
         comanda_id: c.id,
         professional_id: c.professional_id ?? undefined,
         actual_value: { hours_open: hours, total: c.total },
@@ -167,7 +239,9 @@ export function detectProfessionalMissing(comandas: ComandaWithItems[]): Closure
     .map((c) => ({
       type: "professional_missing",
       severity: "medium" as const,
-      description: `Comanda #${c.comanda_number} sem profissional atribuída`,
+      description:
+        `Comanda #${c.comanda_number} não tem profissional atribuída. ` +
+        `Sem isso a comissão não vai pra ninguém. Edite a comanda e selecione quem atendeu.`,
       comanda_id: c.id,
     }));
 }
@@ -178,21 +252,26 @@ export function detectPaymentWithoutPaidFlag(comandas: ComandaWithItems[]): Clos
     .map((c) => ({
       type: "payment_without_paid_flag",
       severity: "medium" as const,
-      description: `Comanda #${c.comanda_number}: tem pagamento mas flag is_paid=false`,
+      description:
+        `Comanda #${c.comanda_number} tem pagamento registrado mas ainda está aberta. ` +
+        `Provavelmente esqueceu de finalizar — vá na comanda e clique em "Fechar".`,
       comanda_id: c.id,
       professional_id: c.professional_id ?? undefined,
     }));
 }
 
 export function detectCashbackOverdraft(
-  credits: Array<{ client_id: string; balance: number }>,
+  credits: Array<{ client_id: string; balance: number; client_name?: string }>,
 ): ClosureIssue[] {
+  const fmt = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
   return credits
     .filter((c) => Number(c.balance) < 0)
     .map((c) => ({
       type: "cashback_overdraft",
       severity: "medium" as const,
-      description: `Cliente ${c.client_id}: saldo de cashback negativo (R$${c.balance})`,
+      description:
+        `Cliente ${c.client_name ?? c.client_id} está com saldo de cashback negativo ` +
+        `(${fmt(c.balance)}). Resgataram mais do que tinham — ajustar.`,
       actual_value: { client_id: c.client_id, balance: c.balance },
     }));
 }
@@ -210,7 +289,8 @@ export function detectDuplicateServiceSameClient(comandas: ComandaWithItems[]): 
           type: "duplicate_service_same_client",
           severity: "low",
           description:
-            `Comanda #${c.comanda_number}: ${item.quantity}× ${item.service_name} pro mesmo cliente`,
+            `Comanda #${c.comanda_number} tem ${item.quantity}× ${item.service_name} no mesmo cliente. ` +
+            `É legítimo (cliente fez 3 serviços iguais) ou foi lançamento duplicado pra inflar comissão? Vale conferir.`,
           comanda_id: c.id,
           professional_id: c.professional_id ?? undefined,
           actual_value: { service: item.service_name, quantity: item.quantity },

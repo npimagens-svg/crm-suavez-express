@@ -91,6 +91,8 @@ export interface ComandaWithItems {
   professional_id: string | null;
   comanda_number: number;
   total: number;
+  subtotal?: number | null;
+  discount?: number | null;
   is_paid: boolean;
   created_at: string;
   closed_at: string | null;
