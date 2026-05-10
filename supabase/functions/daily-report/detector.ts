@@ -109,3 +109,84 @@ export function detectPagbankOrphanTransaction(
   }
   return issues;
 }
+
+// =============================================================================
+// MEDIUM severity (4)
+// =============================================================================
+
+export function detectComandaOpen24h(comandas: ComandaWithItems[]): ClosureIssue[] {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  return comandas
+    .filter((c) => !c.is_paid && new Date(c.created_at).getTime() < cutoff)
+    .map((c) => {
+      const hours = Math.round((Date.now() - new Date(c.created_at).getTime()) / 3600000);
+      return {
+        type: "comanda_open_24h",
+        severity: "medium" as const,
+        description: `Comanda #${c.comanda_number} aberta há ${hours}h sem fechamento`,
+        comanda_id: c.id,
+        professional_id: c.professional_id ?? undefined,
+        actual_value: { hours_open: hours, total: c.total },
+      };
+    });
+}
+
+export function detectProfessionalMissing(comandas: ComandaWithItems[]): ClosureIssue[] {
+  return comandas
+    .filter((c) => !c.professional_id)
+    .map((c) => ({
+      type: "professional_missing",
+      severity: "medium" as const,
+      description: `Comanda #${c.comanda_number} sem profissional atribuída`,
+      comanda_id: c.id,
+    }));
+}
+
+export function detectPaymentWithoutPaidFlag(comandas: ComandaWithItems[]): ClosureIssue[] {
+  return comandas
+    .filter((c) => !c.is_paid && c.payments.length > 0)
+    .map((c) => ({
+      type: "payment_without_paid_flag",
+      severity: "medium" as const,
+      description: `Comanda #${c.comanda_number}: tem pagamento mas flag is_paid=false`,
+      comanda_id: c.id,
+      professional_id: c.professional_id ?? undefined,
+    }));
+}
+
+export function detectCashbackOverdraft(
+  credits: Array<{ client_id: string; balance: number }>,
+): ClosureIssue[] {
+  return credits
+    .filter((c) => Number(c.balance) < 0)
+    .map((c) => ({
+      type: "cashback_overdraft",
+      severity: "medium" as const,
+      description: `Cliente ${c.client_id}: saldo de cashback negativo (R$${c.balance})`,
+      actual_value: { client_id: c.client_id, balance: c.balance },
+    }));
+}
+
+// =============================================================================
+// LOW severity (1)
+// =============================================================================
+
+export function detectDuplicateServiceSameClient(comandas: ComandaWithItems[]): ClosureIssue[] {
+  const issues: ClosureIssue[] = [];
+  for (const c of comandas) {
+    for (const item of c.items) {
+      if (item.quantity > 2) {
+        issues.push({
+          type: "duplicate_service_same_client",
+          severity: "low",
+          description:
+            `Comanda #${c.comanda_number}: ${item.quantity}× ${item.service_name} pro mesmo cliente`,
+          comanda_id: c.id,
+          professional_id: c.professional_id ?? undefined,
+          actual_value: { service: item.service_name, quantity: item.quantity },
+        });
+      }
+    }
+  }
+  return issues;
+}
