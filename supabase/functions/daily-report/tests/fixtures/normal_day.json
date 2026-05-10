@@ -1,0 +1,56 @@
+{
+  "comandas": [
+    {
+      "id": "c1", "salon_id": "s1", "client_id": "cli1", "professional_id": "p_marcilene",
+      "comanda_number": 100, "total": 47, "is_paid": true,
+      "created_at": "2026-05-09T10:00:00Z", "closed_at": "2026-05-09T10:30:00Z",
+      "items": [{"service_id": "svc_manicure", "service_name": "Manicure", "quantity": 1, "unit_price": 47, "total_price": 47}],
+      "payments": [{"id": "pay1", "amount": 47, "payment_method": "pix", "fee_amount": 0, "net_amount": 47, "installments": 0}]
+    },
+    {
+      "id": "c2", "salon_id": "s1", "client_id": "cli2", "professional_id": "p_wanessa",
+      "comanda_number": 101, "total": 80, "is_paid": true,
+      "created_at": "2026-05-09T11:00:00Z", "closed_at": "2026-05-09T11:45:00Z",
+      "items": [{"service_id": "svc_escova", "service_name": "Escova", "quantity": 1, "unit_price": 80, "total_price": 80}],
+      "payments": [{"id": "pay2", "amount": 80, "payment_method": "credit", "fee_amount": 0, "net_amount": 80, "installments": 1}]
+    },
+    {
+      "id": "c3", "salon_id": "s1", "client_id": "cli3", "professional_id": "p_marcilene",
+      "comanda_number": 102, "total": 47, "is_paid": true,
+      "created_at": "2026-05-09T12:00:00Z", "closed_at": "2026-05-09T12:30:00Z",
+      "items": [{"service_id": "svc_manicure", "service_name": "Manicure", "quantity": 1, "unit_price": 47, "total_price": 47}],
+      "payments": [{"id": "pay3", "amount": 47, "payment_method": "debit", "fee_amount": 0, "net_amount": 47, "installments": 0}]
+    },
+    {
+      "id": "c4", "salon_id": "s1", "client_id": "cli1", "professional_id": "p_julia",
+      "comanda_number": 103, "total": 120, "is_paid": true,
+      "created_at": "2026-05-09T14:00:00Z", "closed_at": "2026-05-09T15:00:00Z",
+      "items": [
+        {"service_id": "svc_escova", "service_name": "Escova", "quantity": 1, "unit_price": 80, "total_price": 80},
+        {"service_id": "svc_hidratacao", "service_name": "Hidratacao", "quantity": 1, "unit_price": 40, "total_price": 40}
+      ],
+      "payments": [{"id": "pay4", "amount": 120, "payment_method": "cash", "fee_amount": 0, "net_amount": 120, "installments": 0}]
+    },
+    {
+      "id": "c5", "salon_id": "s1", "client_id": "cli4", "professional_id": "p_wanessa",
+      "comanda_number": 104, "total": 250, "is_paid": true,
+      "created_at": "2026-05-09T16:00:00Z", "closed_at": "2026-05-09T17:30:00Z",
+      "items": [
+        {"service_id": "svc_progressiva", "service_name": "Progressiva Express", "quantity": 1, "unit_price": 250, "total_price": 250}
+      ],
+      "payments": [
+        {"id": "pay5a", "amount": 150, "payment_method": "credit", "fee_amount": 0, "net_amount": 150, "installments": 2},
+        {"id": "pay5b", "amount": 100, "payment_method": "pix", "fee_amount": 0, "net_amount": 100, "installments": 0}
+      ]
+    }
+  ],
+  "queue_entries": [
+    {"id": "q1", "status": "completed", "client_name": "Maria"},
+    {"id": "q2", "status": "abandoned", "client_name": "Joana"}
+  ],
+  "customer_credits": [
+    {"client_id": "cli1", "amount": 3.29, "type": "earned", "comanda_id": "c1"},
+    {"client_id": "cli2", "amount": 5.60, "type": "earned", "comanda_id": "c2"},
+    {"client_id": "cli3", "amount": -10.00, "type": "redeemed", "comanda_id": "c3"}
+  ]
+}

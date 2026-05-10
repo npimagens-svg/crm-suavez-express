@@ -1,0 +1,23 @@
+{
+  "detalhes": [
+    {
+      "meio_pagamento": 8,
+      "arranjo_ur": "DEBIT_MASTERCARD",
+      "valor_total_transacao": 64,
+      "valor_liquido_transacao": 63.37,
+      "taxa_intermediacao": 0.63,
+      "data_prevista_pagamento": "2026-05-03",
+      "quantidade_parcelas": 0
+    },
+    {
+      "meio_pagamento": 3,
+      "arranjo_ur": "CREDIT_VISA",
+      "valor_total_transacao": 240,
+      "valor_liquido_transacao": 232.13,
+      "taxa_intermediacao": 7.87,
+      "data_prevista_pagamento": "2026-05-04",
+      "quantidade_parcelas": 3
+    }
+  ],
+  "pagination": { "elements": 100, "totalPages": 1, "page": 1, "totalElements": 2 }
+}
