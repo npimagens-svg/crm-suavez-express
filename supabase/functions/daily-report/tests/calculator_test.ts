@@ -119,6 +119,57 @@ Deno.test("calculatePaymentMix: agrega por método", () => {
   assertEquals(result.cash.gross, 120);
 });
 
+Deno.test("calculatePaymentMix: by_provider agrega por payment_provider", () => {
+  const comandas = [{
+    id: "c1", salon_id: "s1", client_id: null, professional_id: null,
+    comanda_number: 1, total: 300, is_paid: true,
+    created_at: "2026-05-09T10:00:00Z", closed_at: "2026-05-09T10:30:00Z",
+    items: [],
+    payments: [
+      { id: "p1", amount: 100, payment_method: "credit", payment_provider: "pagbank" as const, fee_amount: 0, net_amount: 97,  installments: 1 },
+      { id: "p2", amount: 50,  payment_method: "credit", payment_provider: "asaas"   as const, fee_amount: 0, net_amount: 48,  installments: 1 },
+      { id: "p3", amount: 30,  payment_method: "pix",    payment_provider: "asaas"   as const, fee_amount: 0, net_amount: 30,  installments: 0 },
+      { id: "p4", amount: 70,  payment_method: "pix",    payment_provider: "manual"  as const, fee_amount: 0, net_amount: 70,  installments: 0 },
+      { id: "p5", amount: 50,  payment_method: "cash",   payment_provider: "manual"  as const, fee_amount: 0, net_amount: 50,  installments: 0 },
+    ],
+  }];
+  const result = calculatePaymentMix(comandas);
+  assertEquals(result.credit.by_provider.pagbank, 100);
+  assertEquals(result.credit.by_provider.asaas, 50);
+  assertEquals(result.credit.by_provider.manual, 0);
+  assertEquals(result.pix.by_provider.asaas, 30);
+  assertEquals(result.pix.by_provider.manual, 70);
+  assertEquals(result.cash.gross, 50);
+});
+
+Deno.test("calculatePaymentMix: payment_provider ausente → manual (default defensivo)", () => {
+  const comandas = [{
+    id: "c1", salon_id: "s1", client_id: null, professional_id: null,
+    comanda_number: 1, total: 100, is_paid: true,
+    created_at: "2026-05-09T10:00:00Z", closed_at: "2026-05-09T10:30:00Z",
+    items: [],
+    // sem payment_provider
+    payments: [{ id: "p1", amount: 100, payment_method: "credit", fee_amount: 0, net_amount: 97, installments: 1 }],
+  }];
+  const result = calculatePaymentMix(comandas);
+  assertEquals(result.credit.by_provider.manual, 100);
+  assertEquals(result.credit.by_provider.pagbank, 0);
+  assertEquals(result.credit.by_provider.asaas, 0);
+});
+
+Deno.test("calculateRevenue: expected_from_asaas soma só CONFIRMED+RECEIVED+RECEIVED_IN_CASH", () => {
+  const asaas = [
+    { id: "p1", status: "RECEIVED",  billingType: "PIX",         value: 100, netValue: 99, customer: "c1", dateCreated: "2026-05-09" },
+    { id: "p2", status: "CONFIRMED", billingType: "CREDIT_CARD", value: 200, netValue: 195, customer: "c2", dateCreated: "2026-05-09" },
+    { id: "p3", status: "PENDING",   billingType: "PIX",         value: 80,  netValue: 80, customer: "c3", dateCreated: "2026-05-09" },
+    { id: "p4", status: "OVERDUE",   billingType: "BOLETO",      value: 50,  netValue: 50, customer: "c4", dateCreated: "2026-05-08" },
+    { id: "p5", status: "RECEIVED_IN_CASH", billingType: "PIX",  value: 40,  netValue: 40, customer: "c5", dateCreated: "2026-05-09" },
+  ];
+  const result = calculateRevenue([], [], asaas);
+  // 100 + 200 + 40 = 340. PENDING + OVERDUE são ignorados.
+  assertEquals(result.expected_from_asaas, 340);
+});
+
 Deno.test("calculateRealCardFee: total = soma de taxa_intermediacao", () => {
   const result = calculateRealCardFee(pagbankFixture.detalhes);
   assertEquals(result.total, 0.63 + 7.87); // 8.50
