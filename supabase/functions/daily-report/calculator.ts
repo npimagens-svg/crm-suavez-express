@@ -86,3 +86,20 @@ export function calculateTopServices(comandas: ComandaWithItems[]): ServiceStats
     .sort((a, b) => b.count - a.count)
     .slice(0, 3);
 }
+
+export function calculatePaymentMix(comandas: ComandaWithItems[]): PaymentMix {
+  const empty = { count: 0, gross: 0, net: 0 };
+  const mix: PaymentMix = {
+    credit: { ...empty }, debit: { ...empty }, pix: { ...empty }, cash: { ...empty }
+  };
+  for (const c of comandas.filter(x => x.is_paid)) {
+    for (const p of c.payments) {
+      const key = (p.payment_method ?? "").toLowerCase() as keyof PaymentMix;
+      if (!(key in mix)) continue;
+      mix[key].count += 1;
+      mix[key].gross += Number(p.amount);
+      mix[key].net += Number(p.net_amount ?? p.amount);
+    }
+  }
+  return mix;
+}

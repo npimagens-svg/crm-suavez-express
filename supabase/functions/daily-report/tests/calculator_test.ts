@@ -4,6 +4,7 @@ import {
   calculateBookings,
   calculateByProfessional,
   calculateTopServices,
+  calculatePaymentMix,
 } from "../calculator.ts";
 import normalDay from "./fixtures/normal_day.json" with { type: "json" };
 
@@ -96,4 +97,17 @@ Deno.test("calculateTopServices: retorna top 3 ordenado por count", () => {
   for (let i = 1; i < result.length; i++) {
     assertEquals(result[i - 1].count >= result[i].count, true);
   }
+});
+
+Deno.test("calculatePaymentMix: agrega por método", () => {
+  const result = calculatePaymentMix(normalDay.comandas);
+  // pix: c1 47 + c5b 100 = 147 (count 2)
+  // credit: c2 80 + c5a 150 = 230 (count 2)
+  // debit: c3 47 (count 1)
+  // cash: c4 120 (count 1)
+  assertEquals(result.pix.gross, 147);
+  assertEquals(result.pix.count, 2);
+  assertEquals(result.credit.gross, 230);
+  assertEquals(result.debit.gross, 47);
+  assertEquals(result.cash.gross, 120);
 });
