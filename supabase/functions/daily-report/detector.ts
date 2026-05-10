@@ -76,20 +76,52 @@ export function detectPaymentMethodMismatch(
         ? ` (descontando ${fmt(asaasPart)} do Asaas online)`
         : "";
 
+      // INVESTIGA CAUSA: o diff bate com algum Asaas RECEIVED não-cartão (PIX/outro)?
+      // Hipótese: comanda lançada como cartão mas cliente pagou via Asaas em outro método.
+      const absDiff = Math.abs(diff);
+      const asaasNonCard = asaasConfirmed.filter(a =>
+        a.billingType !== "CREDIT_CARD" && a.billingType !== "DEBIT_CARD"
+      );
+      // 1) Match exato 1 cobrança bate
+      const asaasExactMatch = asaasNonCard.find(a => Math.abs(Number(a.value) - absDiff) < 0.50);
+      // 2) Soma de várias bate
+      const asaasSumMatch = !asaasExactMatch && asaasNonCard.length > 1
+        ? Math.abs(asaasNonCard.reduce((s, a) => s + Number(a.value), 0) - absDiff) < 0.50
+        : false;
+
+      let causaIdentificada = "";
+      if (asaasExactMatch && diff > 0) {
+        const billingLabel: Record<string, string> = {
+          PIX: "PIX",
+          BOLETO: "boleto",
+          UNDEFINED: "online",
+        };
+        const tipo = billingLabel[asaasExactMatch.billingType] ?? asaasExactMatch.billingType;
+        const descrAsaas = asaasExactMatch.description ?? "(sem descrição)";
+        causaIdentificada =
+          `\n\n🔎 *Causa provável encontrada:* há 1 cobrança Asaas ${tipo} de ${fmt(Number(asaasExactMatch.value))} ` +
+          `paga online hoje — "${descrAsaas}". ` +
+          `Provavelmente essa cliente pagou via ${tipo} no Asaas mas a comanda foi lançada como ${label} ` +
+          `por engano. Conferir a comanda dela e ajustar o método de pagamento.`;
+      } else if (asaasSumMatch && diff > 0) {
+        causaIdentificada =
+          `\n\n🔎 *Causa provável:* a soma das ${asaasNonCard.length} cobranças Asaas pagas hoje ` +
+          `bate com a diferença. Provavelmente essas comandas foram lançadas como ${label} ` +
+          `mas as clientes pagaram via Asaas online.`;
+      }
+
       let humanDescription: string;
       if (diff > 0) {
-        // sistema diz que recebeu MAIS no cartão presencial do que a maquininha
         humanDescription =
           `Hoje o sistema diz que recebeu ${fmt(expectedPagbank)} no cartão de ${label} pela maquininha${asaasNote}, ` +
           `mas o PagBank só registrou ${fmt(pbTotal)}. ` +
-          `Sobraram ${fmt(Math.abs(diff))} no sistema — provavelmente alguma comanda foi lançada ` +
-          `como ${label} mas o cliente pagou em PIX, dinheiro ou outro cartão.`;
+          `Sobraram ${fmt(absDiff)} no sistema — provavelmente alguma comanda foi lançada ` +
+          `como ${label} mas o cliente pagou em PIX, dinheiro ou outro cartão.${causaIdentificada}`;
       } else {
-        // PagBank tem MAIS do que o sistema (faltou registrar presencial)
         humanDescription =
           `A maquininha do PagBank recebeu ${fmt(pbTotal)} no cartão de ${label} hoje, ` +
           `mas o sistema só registrou ${fmt(expectedPagbank)} presencial${asaasNote}. ` +
-          `Faltam ${fmt(Math.abs(diff))} pra bater — provavelmente alguma comanda ` +
+          `Faltam ${fmt(absDiff)} pra bater — provavelmente alguma comanda ` +
           `foi lançada com outra forma de pagamento mas o cliente pagou no ${label}.`;
       }
 
