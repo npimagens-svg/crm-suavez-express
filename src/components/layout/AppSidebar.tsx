@@ -55,6 +55,7 @@ const operationItems = [
 const managementItems = [
   { title: "Marketing", url: "/marketing", icon: Megaphone },
   { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
+  { title: "Fechamentos", url: "/fechamentos", icon: BarChart3 },
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
 
