@@ -116,6 +116,49 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Captura LEAD: cobrança nova → registra em asaas_pending_leads
+  // Permite follow-up se cliente nunca pagar.
+  if (event === "PAYMENT_CREATED") {
+    // Tenta achar queue_entry pra pegar dados do cliente
+    const { data: q } = await supa
+      .from("queue_entries")
+      .select("id, salon_id, customer_name, customer_phone, customer_email")
+      .eq("payment_id", payment.id)
+      .maybeSingle();
+
+    const salonId = q?.salon_id ?? "9793948a-e208-4054-a4df-4b8f2b3b3965";
+
+    const { error: leadErr } = await supa.from("asaas_pending_leads").upsert({
+      salon_id: salonId,
+      asaas_payment_id: payment.id,
+      customer_name: q?.customer_name ?? null,
+      customer_phone: q?.customer_phone ?? null,
+      customer_email: q?.customer_email ?? null,
+      value: payment.value ?? null,
+      billing_type: payment.billingType ?? null,
+      description: payment.description ?? null,
+      queue_entry_id: q?.id ?? null,
+      status: "pending",
+    }, { onConflict: "asaas_payment_id" });
+
+    action = leadErr ? `lead_error: ${leadErr.message}` : "lead_captured";
+  }
+
+  // Atualiza status do lead quando pagamento confirma/cancela
+  if (confirmed) {
+    await supa.from("asaas_pending_leads").update({
+      status: "paid_online",
+      resolved_at: new Date().toISOString(),
+      resolved_reason: `Pago via Asaas (${event})`,
+    }).eq("asaas_payment_id", payment.id).eq("status", "pending");
+  } else if (deleted) {
+    await supa.from("asaas_pending_leads").update({
+      status: "cancelled",
+      resolved_at: new Date().toISOString(),
+      resolved_reason: event,
+    }).eq("asaas_payment_id", payment.id).eq("status", "pending");
+  }
+
   // 🚨 ALERTAS URGENTES via WhatsApp
   if (chargeback) {
     const valueText = payment.value ? fmtBRL(Number(payment.value)) : "(valor ?)";
