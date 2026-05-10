@@ -242,4 +242,60 @@ input[type="number"] {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Daily report (modal /fechamentos) — relatório formatado */
+  .daily-report-content h2 {
+    @apply text-xl font-bold mb-3 text-slate-900;
+  }
+  .daily-report-content h3 {
+    @apply text-sm font-semibold uppercase tracking-wider text-slate-500 mt-6 mb-2;
+  }
+  .daily-report-content .summary {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 bg-slate-50 rounded border border-slate-200 mb-4;
+  }
+  .daily-report-content .summary div strong {
+    @apply font-medium text-slate-700 mr-1;
+  }
+  .daily-report-content table {
+    @apply w-full text-sm border border-slate-200 rounded overflow-hidden;
+  }
+  .daily-report-content thead {
+    @apply bg-slate-100;
+  }
+  .daily-report-content th {
+    @apply text-left p-2 font-medium text-slate-600 text-xs uppercase tracking-wide;
+  }
+  .daily-report-content td {
+    @apply p-2 border-t border-slate-100;
+  }
+  .daily-report-content tbody tr:nth-child(even) {
+    @apply bg-slate-50;
+  }
+  .daily-report-content ul {
+    @apply list-none space-y-1 my-2;
+  }
+  .daily-report-content ul li {
+    @apply text-sm p-2 bg-slate-50 rounded;
+  }
+  .daily-report-content .provider-breakdown {
+    @apply text-xs text-slate-500;
+  }
+  .daily-report-content p {
+    @apply text-sm text-slate-600 my-2;
+  }
+  .daily-report-content .warn {
+    @apply bg-amber-100 text-amber-900 p-3 rounded border border-amber-200;
+  }
+  .daily-report-content .issues li {
+    @apply border-l-4 p-3;
+  }
+  .daily-report-content .issues li.sev-high {
+    @apply border-rose-500 bg-rose-50 text-rose-900;
+  }
+  .daily-report-content .issues li.sev-medium {
+    @apply border-amber-500 bg-amber-50 text-amber-900;
+  }
+  .daily-report-content .issues li.sev-low {
+    @apply border-sky-500 bg-sky-50 text-sky-900;
+  }
 }

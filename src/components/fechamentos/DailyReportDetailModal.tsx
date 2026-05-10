@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -6,6 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import { useGenerateReport } from "@/hooks/useDailyReports";
 
 interface DailyReportDetailModalProps {
@@ -27,7 +28,32 @@ export function DailyReportDetailModal({
 }: DailyReportDetailModalProps) {
   const regenerate = useGenerateReport();
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null);
+  const [loadingHtml, setLoadingHtml] = useState(false);
   const [resending, setResending] = useState(false);
+
+  // Carrega HTML formatado ao abrir o modal (chamando Edge Function fresca).
+  // Relatórios persistidos no banco antes só tinham KPIs sem o HTML — então
+  // sem isso a UI cai no fallback JSON cru.
+  useEffect(() => {
+    if (!open || htmlProp) return;
+    let cancelled = false;
+    setLoadingHtml(true);
+    regenerate
+      .mutateAsync({ date: reportDate })
+      .then((r) => {
+        if (!cancelled && r?.html) setGeneratedHtml(r.html);
+      })
+      .catch((err) => {
+        console.error("[DailyReportDetailModal] load html failed:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHtml(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, reportDate]);
 
   const html = generatedHtml ?? htmlProp;
 
@@ -72,15 +98,20 @@ export function DailyReportDetailModal({
           <DialogTitle>Fechamento de {formattedDate}</DialogTitle>
         </DialogHeader>
 
-        {html ? (
+        {loadingHtml ? (
+          <div className="flex items-center justify-center py-12 text-slate-500">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            Gerando relatório formatado...
+          </div>
+        ) : html ? (
           <div
-            className="prose max-w-none text-sm"
+            className="daily-report-content text-sm"
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
-          <pre className="text-xs bg-slate-50 p-3 rounded overflow-x-auto">
-            {JSON.stringify(kpis, null, 2)}
-          </pre>
+          <div className="text-sm text-slate-500 py-6 text-center">
+            Não foi possível gerar o relatório formatado.
+          </div>
         )}
 
         <div className="flex justify-end gap-2 mt-4">
