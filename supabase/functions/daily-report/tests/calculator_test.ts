@@ -5,8 +5,10 @@ import {
   calculateByProfessional,
   calculateTopServices,
   calculatePaymentMix,
+  calculateRealCardFee,
 } from "../calculator.ts";
 import normalDay from "./fixtures/normal_day.json" with { type: "json" };
+import pagbankFixture from "./fixtures/pagbank_response.json" with { type: "json" };
 
 Deno.test("calculateRevenue: soma bruto de comandas pagas", () => {
   const result = calculateRevenue(normalDay.comandas, []);
@@ -110,4 +112,15 @@ Deno.test("calculatePaymentMix: agrega por método", () => {
   assertEquals(result.credit.gross, 230);
   assertEquals(result.debit.gross, 47);
   assertEquals(result.cash.gross, 120);
+});
+
+Deno.test("calculateRealCardFee: total = soma de taxa_intermediacao", () => {
+  const result = calculateRealCardFee(pagbankFixture.detalhes);
+  assertEquals(result.total, 0.63 + 7.87); // 8.50
+});
+
+Deno.test("calculateRealCardFee: by_brand agrupa por arranjo_ur", () => {
+  const result = calculateRealCardFee(pagbankFixture.detalhes);
+  assertEquals(result.by_brand["DEBIT_MASTERCARD"], 0.63);
+  assertEquals(result.by_brand["CREDIT_VISA"], 7.87);
 });

@@ -103,3 +103,17 @@ export function calculatePaymentMix(comandas: ComandaWithItems[]): PaymentMix {
   }
   return mix;
 }
+
+export function calculateRealCardFee(
+  pagbank: PagBankTransaction[]
+): { total: number; by_brand: Record<string, number> } {
+  let total = 0;
+  const by_brand: Record<string, number> = {};
+  for (const t of pagbank) {
+    const fee = Number(t.taxa_intermediacao ?? 0);
+    if (fee === 0) continue; // PIX, dinheiro
+    total += fee;
+    by_brand[t.arranjo_ur] = (by_brand[t.arranjo_ur] ?? 0) + fee;
+  }
+  return { total, by_brand };
+}
