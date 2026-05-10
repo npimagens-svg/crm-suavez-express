@@ -14,6 +14,7 @@ import { OpenCaixaModal } from "@/components/caixa/OpenCaixaModal";
 import { CloseCaixaModal } from "@/components/caixa/CloseCaixaModal";
 import { EditCaixaModal } from "@/components/caixa/EditCaixaModal";
 import { CaixaDetailModal } from "@/components/caixa/CaixaDetailModal";
+import { PaymentByProviderReport } from "@/components/financeiro/PaymentByProviderReport";
 import { format, isSameDay, getDaysInMonth, startOfMonth, setDate } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,7 @@ export default function Financeiro() {
 
   // Determine active tab from URL
   const isHistorico = location.pathname.includes("/historico");
+  const isPorGateway = location.pathname.includes("/por-gateway");
 
   // Check if user has open caixa
   useEffect(() => {
@@ -114,7 +116,10 @@ export default function Financeiro() {
   return (
     <AppLayoutNew>
       <div className="space-y-4">
-        {!isHistorico ? (
+        {isPorGateway ? (
+          // Por Gateway Tab
+          <PaymentByProviderReport />
+        ) : !isHistorico ? (
           // Caixas Abertos Tab
           <>
             <div className="flex items-center justify-between">

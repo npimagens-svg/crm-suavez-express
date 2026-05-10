@@ -41,6 +41,7 @@ const navItems: NavItem[] = [
       { title: "Histórico de Caixas", url: "/financeiro/historico" },
       { title: "Comandas", url: "/comandas" },
       { title: "Comissões", url: "/financeiro/comissoes" },
+      { title: "Por gateway", url: "/financeiro/por-gateway" },
     ]
   },
   { 
