@@ -29,6 +29,7 @@ import FilaPublica from "@/pages/FilaPublica";
 import FilaComprar from "@/pages/FilaComprar";
 import FilaAcompanhar from "@/pages/FilaAcompanhar";
 import Fila from "@/pages/Fila";
+import Pendencias from "@/pages/Pendencias";
 
 const queryClient = new QueryClient();
 
@@ -110,6 +111,7 @@ function AppRoutes() {
         <Route path="/fila" element={<FilaPublica />} />
         <Route path="/fila/comprar" element={<FilaComprar />} />
         <Route path="/fila/acompanhar/:id" element={<FilaAcompanhar />} />
+        <Route path="/pendencias" element={<ProtectedRoute><Pendencias /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     );
@@ -173,6 +175,7 @@ function AppRoutes() {
       <Route path="/fila" element={<FilaPublica />} />
       <Route path="/fila/comprar" element={<FilaComprar />} />
       <Route path="/fila/acompanhar/:id" element={<FilaAcompanhar />} />
+      <Route path="/pendencias" element={<ProtectedRoute><Pendencias /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

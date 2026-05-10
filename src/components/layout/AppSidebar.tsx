@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ChevronDown,
   ListOrdered,
+  AlertTriangle,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -48,6 +49,7 @@ const operationItems = [
   { title: "Fila", url: "/fila-admin", icon: ListOrdered },
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
   { title: "Estoque", url: "/estoque", icon: Package },
+  { title: "Pendências", url: "/pendencias", icon: AlertTriangle },
 ];
 
 const managementItems = [
