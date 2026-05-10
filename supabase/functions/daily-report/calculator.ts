@@ -117,3 +117,60 @@ export function calculateRealCardFee(
   }
   return { total, by_brand };
 }
+
+export function calculateNewVsReturning(
+  today: ComandaWithItems[],
+  historyPaid: Array<{ client_id: string | null; closed_at: string | null }>
+): { new_count: number; returning_count: number; new_revenue: number } {
+  const known = new Set(historyPaid.filter(h => h.client_id).map(h => h.client_id!));
+  const todayClients = new Map<string, number>();
+  for (const c of today.filter(x => x.is_paid && x.client_id)) {
+    todayClients.set(c.client_id!, (todayClients.get(c.client_id!) ?? 0) + Number(c.total));
+  }
+  let new_count = 0, returning_count = 0, new_revenue = 0;
+  for (const [cid, revenue] of todayClients) {
+    if (known.has(cid)) {
+      returning_count += 1;
+    } else {
+      new_count += 1;
+      new_revenue += revenue;
+    }
+  }
+  return { new_count, returning_count, new_revenue };
+}
+
+export function calculateCashback(
+  credits: Array<{ amount: number; type: "earned" | "redeemed" }>
+): { credited: number; redeemed: number; balance_change: number } {
+  let credited = 0, redeemed = 0;
+  for (const c of credits) {
+    if (c.type === "earned") credited += Math.abs(Number(c.amount));
+    else if (c.type === "redeemed") redeemed += Math.abs(Number(c.amount));
+  }
+  return { credited, redeemed, balance_change: credited - redeemed };
+}
+
+export function calculateTowels(comandas: ComandaWithItems[]): { count: number; cost: number } {
+  const count = comandas.filter(c => c.is_paid).length;
+  return { count, cost: count * 1.60 };
+}
+
+export function calculateQueueUnattended(
+  entries: Array<{ id: string; status: string; client_name: string }>
+): { count: number; list: Array<{ id: string; client: string }> } {
+  const list = entries
+    .filter(e => e.status === "abandoned" || e.status === "timeout")
+    .map(e => ({ id: e.id, client: e.client_name }));
+  return { count: list.length, list };
+}
+
+export function calculateSevenDayAverage(
+  history: Array<{ date: string; revenue: number; bookings: number }>
+): { revenue: number; bookings: number; ticket: number } {
+  if (history.length === 0) return { revenue: 0, bookings: 0, ticket: 0 };
+  const last = history.slice(0, 7);
+  const revenue = last.reduce((s, h) => s + h.revenue, 0) / last.length;
+  const bookings = last.reduce((s, h) => s + h.bookings, 0) / last.length;
+  const ticket = bookings === 0 ? 0 : revenue / bookings;
+  return { revenue, bookings, ticket };
+}

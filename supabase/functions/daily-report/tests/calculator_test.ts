@@ -6,6 +6,11 @@ import {
   calculateTopServices,
   calculatePaymentMix,
   calculateRealCardFee,
+  calculateNewVsReturning,
+  calculateCashback,
+  calculateTowels,
+  calculateQueueUnattended,
+  calculateSevenDayAverage,
 } from "../calculator.ts";
 import normalDay from "./fixtures/normal_day.json" with { type: "json" };
 import pagbankFixture from "./fixtures/pagbank_response.json" with { type: "json" };
@@ -123,4 +128,43 @@ Deno.test("calculateRealCardFee: by_brand agrupa por arranjo_ur", () => {
   const result = calculateRealCardFee(pagbankFixture.detalhes);
   assertEquals(result.by_brand["DEBIT_MASTERCARD"], 0.63);
   assertEquals(result.by_brand["CREDIT_VISA"], 7.87);
+});
+
+Deno.test("calculateNewVsReturning: novo = primeira comanda do cliente no histórico", () => {
+  // novos: cli2, cli3, cli4 (sem comanda anterior). retornando: cli1 (já tinha c0 ontem)
+  const today = normalDay.comandas;
+  const history = [{ client_id: "cli1", closed_at: "2026-05-08T10:00:00Z" }];
+  const result = calculateNewVsReturning(today, history);
+  assertEquals(result.new_count, 3);   // cli2, cli3, cli4 (cli1 aparece 2x mas conta como retornando)
+  assertEquals(result.returning_count, 1); // cli1
+});
+
+Deno.test("calculateCashback: separa earned vs redeemed", () => {
+  const result = calculateCashback(normalDay.customer_credits as Array<{ amount: number; type: "earned" | "redeemed" }>);
+  assertEquals(result.credited, 3.29 + 5.60); // 8.89
+  assertEquals(result.redeemed, 10);
+  assertEquals(result.balance_change, 8.89 - 10); // -1.11
+});
+
+Deno.test("calculateTowels: 1 toalha por comanda paga × R$1,60", () => {
+  const result = calculateTowels(normalDay.comandas);
+  assertEquals(result.count, 5);
+  assertEquals(result.cost, 5 * 1.60);
+});
+
+Deno.test("calculateQueueUnattended: pega abandoned/timeout", () => {
+  const result = calculateQueueUnattended(normalDay.queue_entries);
+  assertEquals(result.count, 1);
+  assertEquals(result.list[0].client, "Joana");
+});
+
+Deno.test("calculateSevenDayAverage: média dos últimos 7 dias úteis", () => {
+  const history = [
+    { date: "2026-05-08", revenue: 500, bookings: 4 },
+    { date: "2026-05-07", revenue: 600, bookings: 5 },
+    { date: "2026-05-06", revenue: 400, bookings: 3 }
+  ];
+  const result = calculateSevenDayAverage(history);
+  assertEquals(result.revenue, 500); // (500+600+400)/3
+  assertEquals(result.bookings, 4);  // (4+5+3)/3
 });
