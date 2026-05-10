@@ -1,5 +1,9 @@
 import { assertEquals } from "std/assert/mod.ts";
-import { calculateRevenue, calculateBookings } from "../calculator.ts";
+import {
+  calculateRevenue,
+  calculateBookings,
+  calculateByProfessional,
+} from "../calculator.ts";
 import normalDay from "./fixtures/normal_day.json" with { type: "json" };
 
 Deno.test("calculateRevenue: soma bruto de comandas pagas", () => {
@@ -48,4 +52,31 @@ Deno.test("calculateBookings: dia vazio retorna count=0 e ticket=0", () => {
   const result = calculateBookings([]);
   assertEquals(result.count, 0);
   assertEquals(result.average_ticket, 0);
+});
+
+const PROFS = [
+  { id: "p_marcilene", name: "Marcilene Zanette" },
+  { id: "p_wanessa",   name: "Wanessa Ribeiro" },
+  { id: "p_julia",     name: "Julia Dalla" }
+];
+
+Deno.test("calculateByProfessional: agrega revenue por profissional", () => {
+  const result = calculateByProfessional(normalDay.comandas, PROFS);
+  const wanessa = result.find(p => p.id === "p_wanessa");
+  // c2 (80) + c5 (250) = 330
+  assertEquals(wanessa?.revenue, 330);
+});
+
+Deno.test("calculateByProfessional: top_service é o mais frequente", () => {
+  const result = calculateByProfessional(normalDay.comandas, PROFS);
+  const marcilene = result.find(p => p.id === "p_marcilene");
+  assertEquals(marcilene?.top_service?.name, "Manicure"); // 2 manicures
+});
+
+Deno.test("calculateByProfessional: ordena por revenue desc", () => {
+  const result = calculateByProfessional(normalDay.comandas, PROFS);
+  // wanessa 330, julia 120, marcilene 94
+  assertEquals(result[0].id, "p_wanessa");
+  assertEquals(result[1].id, "p_julia");
+  assertEquals(result[2].id, "p_marcilene");
 });
