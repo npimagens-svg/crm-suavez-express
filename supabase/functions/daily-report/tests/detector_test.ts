@@ -10,6 +10,7 @@ import {
   detectPaymentWithoutPaidFlag,
   detectProfessionalMissing,
   detectValueMismatch,
+  runAllDetectors,
 } from "../detector.ts";
 import divergent from "./fixtures/divergent_day.json" with { type: "json" };
 import pagbank from "./fixtures/pagbank_response.json" with { type: "json" };
@@ -98,4 +99,23 @@ Deno.test("detectDuplicateServiceSameClient: 3 escovas (Dandara)", () => {
   const issues = detectDuplicateServiceSameClient(divergent.comandas);
   const dandara = issues.find((i) => i.comanda_id === "c90");
   assertEquals(dandara?.severity, "low");
+});
+
+// =============================================================================
+// Task 4.3 — Agregador
+// =============================================================================
+
+Deno.test("runAllDetectors: roda todos e concatena", () => {
+  const issues = runAllDetectors({
+    comandas: divergent.comandas,
+    pagbank: pagbank.detalhes,
+    credits: [],
+  });
+  assertEquals(issues.length >= 3, true);
+  // ordenado por severidade
+  const severities = issues.map((i) => i.severity);
+  const idx = (s: string) => ({ high: 0, medium: 1, low: 2 }[s] ?? 99);
+  for (let i = 1; i < severities.length; i++) {
+    assertEquals(idx(severities[i - 1]) <= idx(severities[i]), true);
+  }
 });

@@ -190,3 +190,29 @@ export function detectDuplicateServiceSameClient(comandas: ComandaWithItems[]): 
   }
   return issues;
 }
+
+// =============================================================================
+// AGREGADOR
+// =============================================================================
+
+export interface DetectorInput {
+  comandas: ComandaWithItems[];
+  pagbank: PagBankTransaction[];
+  credits: Array<{ client_id: string; balance: number }>;
+}
+
+export function runAllDetectors(input: DetectorInput): ClosureIssue[] {
+  const all = [
+    ...detectPaymentMethodMismatch(input.comandas, input.pagbank),
+    ...detectValueMismatch(input.comandas),
+    ...detectPaidWithoutPayment(input.comandas),
+    ...detectPagbankOrphanTransaction(input.comandas, input.pagbank),
+    ...detectComandaOpen24h(input.comandas),
+    ...detectProfessionalMissing(input.comandas),
+    ...detectPaymentWithoutPaidFlag(input.comandas),
+    ...detectCashbackOverdraft(input.credits),
+    ...detectDuplicateServiceSameClient(input.comandas),
+  ];
+  const sev = { high: 0, medium: 1, low: 2 } as const;
+  return all.sort((a, b) => sev[a.severity] - sev[b.severity]);
+}
