@@ -367,6 +367,10 @@ async function generateReport(input: GenerateInput): Promise<DailyReportResponse
     html: renderHtml({ date: startDate, kpis, issues, pagbankUnavailable, asaasUnavailable }),
     pagbank_unavailable: pagbankUnavailable,
     asaas_unavailable: asaasUnavailable,
+    transactions: {
+      pagbank: allTx,
+      asaas: allAsaas,
+    },
   };
 }
 

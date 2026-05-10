@@ -122,6 +122,10 @@ export interface DailyReportResponse {
   html: string;
   pagbank_unavailable?: boolean;
   asaas_unavailable?: boolean;
+  transactions?: {
+    pagbank: PagBankTransaction[];
+    asaas: AsaasPayment[];
+  };
 }
 
 // Domínio (input das funções de cálculo)
