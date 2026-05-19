@@ -25,6 +25,8 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
   const [closingBalance, setClosingBalance] = useState("");
   const [notes, setNotes] = useState("");
   const [openComandasCount, setOpenComandasCount] = useState(0);
+  const [orphanComandasCount, setOrphanComandasCount] = useState(0);
+  const [isLastOpenCaixa, setIsLastOpenCaixa] = useState(false);
   const [checkingComandas, setCheckingComandas] = useState(false);
   const [totalCredits, setTotalCredits] = useState(0);
   const [totalDebts, setTotalDebts] = useState(0);
@@ -48,7 +50,7 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
 
     setCheckingComandas(true);
     try {
-      // 1. Check open comandas
+      // 1. Check open comandas vinculadas a este caixa
       const { data: openCmdData } = await supabase
         .from("comandas")
         .select("id", { count: "exact" })
@@ -57,6 +59,31 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
         .is("closed_at", null);
 
       setOpenComandasCount(openCmdData?.length || 0);
+
+      // 1b. Comandas órfãs do salão (sem caixa vinculado e ainda em aberto).
+      // Só bloqueiam o fechamento quando este é o ÚLTIMO caixa aberto do salão
+      // — se ainda houver outros caixas, deixa que o próximo a fechar lide.
+      const { data: otherOpenCaixas } = await supabase
+        .from("caixas")
+        .select("id")
+        .eq("salon_id", salonId)
+        .is("closed_at", null)
+        .neq("id", caixa.id);
+
+      const lastOpen = !otherOpenCaixas || otherOpenCaixas.length === 0;
+      setIsLastOpenCaixa(lastOpen);
+
+      if (lastOpen) {
+        const { data: orphanCmdData } = await supabase
+          .from("comandas")
+          .select("id", { count: "exact" })
+          .eq("salon_id", salonId)
+          .is("caixa_id", null)
+          .is("closed_at", null);
+        setOrphanComandasCount(orphanCmdData?.length || 0);
+      } else {
+        setOrphanComandasCount(0);
+      }
 
       // 2. Recalculate totals from actual payment records
       const { data: allComandas } = await supabase
@@ -148,6 +175,7 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
 
   const handleConfirm = () => {
     if (openComandasCount > 0) return;
+    if (orphanComandasCount > 0) return;
 
     const balance = parseFloat(closingBalance.replace(",", ".")) || 0;
     setClosedBalanceValue(balance);
@@ -359,6 +387,8 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
   const expectedCash = (caixa.opening_balance || 0) + displayCash;
 
   const hasOpenComandas = openComandasCount > 0;
+  const hasOrphanComandas = orphanComandasCount > 0;
+  const blocked = hasOpenComandas || hasOrphanComandas;
 
   if (showSuccess) {
     return (
@@ -407,14 +437,27 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
               <span className="text-sm text-muted-foreground">Verificando comandas...</span>
             </div>
-          ) : hasOpenComandas && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                Existem <strong>{openComandasCount} comanda{openComandasCount > 1 ? "s" : ""} aberta{openComandasCount > 1 ? "s" : ""}</strong> vinculada{openComandasCount > 1 ? "s" : ""} a este caixa.
-                Feche todas as comandas antes de fechar o caixa.
-              </AlertDescription>
-            </Alert>
+          ) : (
+            <>
+              {hasOpenComandas && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Existem <strong>{openComandasCount} comanda{openComandasCount > 1 ? "s" : ""} aberta{openComandasCount > 1 ? "s" : ""}</strong> vinculada{openComandasCount > 1 ? "s" : ""} a este caixa.
+                    Feche todas as comandas antes de fechar o caixa.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {hasOrphanComandas && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Existem <strong>{orphanComandasCount} comanda{orphanComandasCount > 1 ? "s" : ""} em aberto</strong> no salão sem caixa vinculado.
+                    Como este é o único caixa aberto, resolva essas pendências antes de fechar.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
           )}
 
           {/* Summary */}
@@ -481,7 +524,7 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
               placeholder="0,00"
               value={closingBalance}
               onChange={(e) => setClosingBalance(e.target.value)}
-              disabled={hasOpenComandas}
+              disabled={blocked}
             />
             <p className="text-xs text-muted-foreground">
               Conte o dinheiro no caixa e informe o valor total
@@ -496,7 +539,7 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              disabled={hasOpenComandas}
+              disabled={blocked}
             />
           </div>
         </div>
@@ -506,7 +549,7 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
           </Button>
           <Button
             onClick={handleConfirm}
-            disabled={isLoading || hasOpenComandas || checkingComandas}
+            disabled={isLoading || blocked || checkingComandas}
           >
             {isLoading ? "Fechando..." : "Fechar Caixa"}
           </Button>

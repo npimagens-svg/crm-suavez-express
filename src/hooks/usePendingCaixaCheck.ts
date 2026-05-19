@@ -1,14 +1,20 @@
 import { useMemo } from "react";
 import { useCaixas } from "./useCaixas";
 import { useAuth } from "@/contexts/AuthContext";
-import { startOfDay } from "date-fns";
+import { startOfDay, isSameDay } from "date-fns";
 
 /**
- * Hook that checks if the current user has an open caixa from a previous day.
- * Used to block creating comandas, appointments, or opening a new caixa
- * until yesterday's caixa is closed.
+ * Hook that checks if the current user has an open caixa from a previous day
+ * that DOES NOT match the operation's target date (default: today).
+ *
+ * Used to block creating comandas/appointments until yesterday's forgotten
+ * caixa is closed — but allows intentional retroactive operations (e.g. master
+ * opening a caixa for day 16 to register the missing comandas from that day).
+ *
+ * Pass `targetDate` to declare which day you're operating on. If a pending
+ * caixa exists for THAT same day, it is not flagged as "forgotten".
  */
-export function usePendingCaixaCheck() {
+export function usePendingCaixaCheck(targetDate?: Date) {
   const { openCaixas, isLoading } = useCaixas();
   const { user } = useAuth();
   const userId = user?.id;
@@ -17,16 +23,19 @@ export function usePendingCaixaCheck() {
     if (!userId || isLoading) return null;
 
     const today = startOfDay(new Date());
+    const opDay = targetDate ? startOfDay(targetDate) : today;
 
-    // Find open caixas from previous days for the current user
     const pending = openCaixas.find(c => {
       if (c.user_id !== userId) return false;
       const caixaDate = startOfDay(new Date(c.opened_at));
-      return caixaDate.getTime() < today.getTime();
+      // Only flag as "forgotten" if it's from a previous day AND not the day we're operating on.
+      if (caixaDate.getTime() >= today.getTime()) return false;
+      if (isSameDay(caixaDate, opDay)) return false;
+      return true;
     });
 
     return pending || null;
-  }, [openCaixas, userId, isLoading]);
+  }, [openCaixas, userId, isLoading, targetDate]);
 
   const pendingCaixaDate = pendingCaixa
     ? new Date(pendingCaixa.opened_at).toLocaleDateString("pt-BR")

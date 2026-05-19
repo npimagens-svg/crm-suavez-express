@@ -69,7 +69,8 @@ export default function Comandas() {
 
   const { user, salonId, isMaster } = useAuth();
   const queryClient = useQueryClient();
-  const { hasPendingCaixa, message: pendingCaixaMessage } = usePendingCaixaCheck();
+  const comandaTargetDate = comandaDate ? new Date(comandaDate + "T12:00:00") : undefined;
+  const { hasPendingCaixa, message: pendingCaixaMessage } = usePendingCaixaCheck(comandaTargetDate);
   const { comandas, isLoading, createComanda, findOrCreateTodayComanda, isCreating } = useComandas();
   const { clients, createClient, updateClient } = useClients();
   const { professionals } = useProfessionals();
@@ -292,6 +293,15 @@ export default function Comandas() {
   });
 
   const handleCreate = async () => {
+    if (!userOpenCaixaId) {
+      toast({
+        title: "Nenhum caixa aberto",
+        description: "Abra um caixa antes de criar a comanda. Para registrar comandas de um dia passado, abra o caixa retroativo daquele dia.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (hasPendingCaixa) {
       toast({ title: "Caixa pendente", description: pendingCaixaMessage || "Finalize o caixa anterior antes de criar uma comanda.", variant: "destructive" });
       return;

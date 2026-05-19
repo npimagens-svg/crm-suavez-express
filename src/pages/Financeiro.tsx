@@ -71,12 +71,15 @@ export default function Financeiro() {
     checkUserCaixa();
   }, [caixas]);
 
-  const handleOpenCaixa = (openingBalance: number, notes?: string) => {
-    openCaixa({ opening_balance: openingBalance, notes }, {
-      onSuccess: () => {
-        setOpenCaixaModalOpen(false);
+  const handleOpenCaixa = (openingBalance: number, notes?: string, openedAt?: Date) => {
+    openCaixa(
+      { opening_balance: openingBalance, notes, opened_at: openedAt?.toISOString() },
+      {
+        onSuccess: () => {
+          setOpenCaixaModalOpen(false);
+        },
       }
-    });
+    );
   };
 
   const handleCloseCaixa = (closingBalance: number, notes?: string) => {

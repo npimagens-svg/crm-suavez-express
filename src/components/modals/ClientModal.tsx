@@ -147,10 +147,9 @@ export function ClientModal({ open, onOpenChange, client, onSubmit, isLoading, i
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate required fields
-    if (!formData.name?.trim()) return;
-    if (!formData.phone?.trim()) return;
-    if (!formData.email?.trim()) return;
+    if (!formData.name?.trim() || !formData.phone?.trim()) {
+      return;
+    }
 
     if (client) {
       onSubmit({ ...formData, id: client.id });
@@ -337,14 +336,13 @@ export function ClientModal({ open, onOpenChange, client, onSubmit, isLoading, i
                 {/* Email e CEP */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">E-mail (Obrigatório):</Label>
+                    <Label htmlFor="email">E-mail (Opcional):</Label>
                     <Input
                       id="email"
                       type="email"
                       value={formData.email}
                       onChange={(e) => updateField("email", e.target.value.toLowerCase())}
                       className="lowercase"
-                      required
                     />
                   </div>
                   <div className="space-y-2">

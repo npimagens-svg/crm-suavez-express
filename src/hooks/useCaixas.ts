@@ -30,6 +30,7 @@ export interface Caixa {
 export interface CaixaInput {
   opening_balance: number;
   notes?: string;
+  opened_at?: string; // ISO string — master can backdate when registering a retro caixa
 }
 
 export function useCaixas() {
@@ -97,14 +98,17 @@ export function useCaixas() {
         throw new Error(`Você já possui um caixa aberto (${dateStr}). Feche-o antes de abrir um novo.`);
       }
 
+      const insertPayload: Record<string, any> = {
+        salon_id: salonId,
+        user_id: user.id,
+        opening_balance: input.opening_balance,
+        notes: input.notes,
+      };
+      if (input.opened_at) insertPayload.opened_at = input.opened_at;
+
       const { data, error } = await supabase
         .from("caixas")
-        .insert({
-          salon_id: salonId,
-          user_id: user.id,
-          opening_balance: input.opening_balance,
-          notes: input.notes,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
