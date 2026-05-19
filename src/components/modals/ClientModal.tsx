@@ -108,6 +108,7 @@ const initialFormData: ClientInput = {
 
 export function ClientModal({ open, onOpenChange, client, onSubmit, isLoading, initialName }: ClientModalProps) {
   const [formData, setFormData] = useState<ClientInput>({ ...initialFormData, name: initialName || "" });
+  const [noEmail, setNoEmail] = useState(false);
 
   useEffect(() => {
     if (client) {
@@ -142,6 +143,7 @@ export function ClientModal({ open, onOpenChange, client, onSubmit, isLoading, i
     } else {
       setFormData({ ...initialFormData, name: initialName || "" });
     }
+    if (open) setNoEmail(!!client && !client.email);
   }, [client, open, initialName]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -150,11 +152,15 @@ export function ClientModal({ open, onOpenChange, client, onSubmit, isLoading, i
     if (!formData.name?.trim() || !formData.phone?.trim()) {
       return;
     }
+    if (!noEmail && !formData.email?.trim()) {
+      return;
+    }
 
+    const payload = noEmail ? { ...formData, email: "" } : formData;
     if (client) {
-      onSubmit({ ...formData, id: client.id });
+      onSubmit({ ...payload, id: client.id });
     } else {
-      onSubmit(formData);
+      onSubmit(payload);
     }
     onOpenChange(false);
   };
@@ -337,13 +343,31 @@ export function ClientModal({ open, onOpenChange, client, onSubmit, isLoading, i
                 {/* Email e CEP */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">E-mail (Opcional):</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="email">
+                        E-mail {noEmail ? "(Cliente sem e-mail)" : "(Obrigatório)"}:
+                      </Label>
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                        <Checkbox
+                          id="noEmail"
+                          checked={noEmail}
+                          onCheckedChange={(checked) => {
+                            const v = !!checked;
+                            setNoEmail(v);
+                            if (v) updateField("email", "");
+                          }}
+                        />
+                        Cliente não tem e-mail
+                      </label>
+                    </div>
                     <Input
                       id="email"
                       type="email"
                       value={formData.email}
                       onChange={(e) => updateField("email", e.target.value.toLowerCase())}
                       className="lowercase"
+                      disabled={noEmail}
+                      required={!noEmail}
                     />
                   </div>
                   <div className="space-y-2">
