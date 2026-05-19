@@ -763,7 +763,8 @@ export default function Comandas() {
           setClientModalOpen(open);
           if (!open) { setNewClientName(""); setViewClientId(null); }
         }}
-        client={viewClientId ? clients.find(c => c.id === viewClientId) || undefined : newClientName ? { name: newClientName } as any : undefined}
+        client={viewClientId ? clients.find(c => c.id === viewClientId) || undefined : undefined}
+        initialName={newClientName}
         onSubmit={(data) => {
           if (viewClientId) {
             updateClient({ ...data, id: viewClientId }, {

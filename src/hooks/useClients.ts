@@ -102,6 +102,9 @@ export function useClients() {
       if (!salonId) throw new Error("Salão não encontrado");
       const cleaned: Record<string, any> = { salon_id: salonId };
       for (const [key, value] of Object.entries(input)) {
+        // Skip `id` entirely on insert — let the DB default (gen_random_uuid) generate it.
+        // Passing id=null/undefined explicitly overrides the default and triggers a NOT NULL violation.
+        if (key === "id") continue;
         cleaned[key] = (value === "" || value === undefined) ? null : value;
       }
       const { data, error } = await supabase
