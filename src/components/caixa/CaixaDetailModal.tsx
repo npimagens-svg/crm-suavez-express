@@ -3,8 +3,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Printer, FileText, Eye, Pencil, Loader2, Gift, AlertTriangle } from "lucide-react";
+import { Printer, FileText, Eye, Pencil, Loader2, Gift, AlertTriangle, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { Caixa } from "@/hooks/useCaixas";
+import { useCaixaMovements, CaixaMovementType } from "@/hooks/useCaixaMovements";
+import { SangriaSuprimentoModal } from "./SangriaSuprimentoModal";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { useNavigate } from "react-router-dom";
@@ -19,10 +21,23 @@ interface CaixaDetailModalProps {
 
 export function CaixaDetailModal({ open, onClose, caixa }: CaixaDetailModalProps) {
   const navigate = useNavigate();
+  const [movementModalOpen, setMovementModalOpen] = useState(false);
+  const [movementType, setMovementType] = useState<CaixaMovementType>("sangria");
+  const { movements } = useCaixaMovements(open ? caixa?.id : undefined);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
   };
+
+  const openMovementModal = (type: CaixaMovementType) => {
+    setMovementType(type);
+    setMovementModalOpen(true);
+  };
+
+  const totalSangrias = movements.filter(m => m.type === "sangria").reduce((s, m) => s + Number(m.amount), 0);
+  const totalSuprimentos = movements.filter(m => m.type === "suprimento").reduce((s, m) => s + Number(m.amount), 0);
+  const sangriasCash = movements.filter(m => m.type === "sangria" && m.payment_method === "cash").reduce((s, m) => s + Number(m.amount), 0);
+  const suprimentosCash = movements.filter(m => m.type === "suprimento" && m.payment_method === "cash").reduce((s, m) => s + Number(m.amount), 0);
 
   // Fetch linked comandas
   const { data: linkedComandas, isLoading } = useQuery({
@@ -144,6 +159,38 @@ export function CaixaDetailModal({ open, onClose, caixa }: CaixaDetailModalProps
           ${debtsHtml}
         </table>
       </div>
+      ${movements.length > 0 ? `
+      <div class="section">
+        <h3>Sangrias & Suprimentos (${movements.length})</h3>
+        <table>
+          <thead><tr style="background:#eee;font-size:12px">
+            <th style="padding:6px 8px;text-align:left">Tipo</th>
+            <th style="padding:6px 8px;text-align:left">Motivo</th>
+            <th style="padding:6px 8px;text-align:left">Por</th>
+            <th style="padding:6px 8px;text-align:left">Forma</th>
+            <th style="padding:6px 8px;text-align:left">Hora</th>
+            <th style="padding:6px 8px;text-align:right">Valor</th>
+          </tr></thead>
+          <tbody>
+            ${movements.map((m) => {
+              const isSangria = m.type === "sangria";
+              const methodLabel: Record<string, string> = { cash: "Dinheiro", pix: "PIX", credit_card: "Crédito", debit_card: "Débito", other: "Outro" };
+              return `<tr>
+                <td style="padding:4px 8px;border-bottom:1px solid #eee;color:${isSangria ? "#dc2626" : "#16a34a"};font-weight:600">${isSangria ? "Sangria" : "Suprimento"}</td>
+                <td style="padding:4px 8px;border-bottom:1px solid #eee">${m.reason}</td>
+                <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:11px">${m.profile?.full_name || "Operador"}</td>
+                <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:11px">${methodLabel[m.payment_method] || m.payment_method}</td>
+                <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:11px">${format(new Date(m.created_at), "dd/MM HH:mm")}</td>
+                <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right;color:${isSangria ? "#dc2626" : "#16a34a"};font-weight:600">${isSangria ? "-" : "+"}R$ ${Number(m.amount).toFixed(2)}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+        <table style="margin-top:8px">
+          ${totalSangrias > 0 ? `<tr><td style="padding:4px 0;color:#dc2626">Total sangrias:</td><td style="text-align:right;color:#dc2626;font-weight:600">- R$ ${totalSangrias.toFixed(2)}</td></tr>` : ""}
+          ${totalSuprimentos > 0 ? `<tr><td style="padding:4px 0;color:#16a34a">Total suprimentos:</td><td style="text-align:right;color:#16a34a;font-weight:600">+ R$ ${totalSuprimentos.toFixed(2)}</td></tr>` : ""}
+        </table>
+      </div>` : ""}
       ${(linkedComandas || []).length > 0 ? `
       <div class="section">
         <h3>Comandas (${(linkedComandas || []).length})</h3>
@@ -181,7 +228,29 @@ export function CaixaDetailModal({ open, onClose, caixa }: CaixaDetailModalProps
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <DialogTitle>Detalhes do Caixa — {displayName}</DialogTitle>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              {!caixa.closed_at && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => openMovementModal("sangria")}
+                  >
+                    <ArrowDownCircle className="h-4 w-4" />
+                    Sangria
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
+                    onClick={() => openMovementModal("suprimento")}
+                  >
+                    <ArrowUpCircle className="h-4 w-4" />
+                    Suprimento
+                  </Button>
+                </>
+              )}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrintReport}>
                 <Printer className="h-4 w-4" />
                 Imprimir
@@ -332,6 +401,59 @@ export function CaixaDetailModal({ open, onClose, caixa }: CaixaDetailModalProps
             )}
           </div>
 
+          {/* Sangrias / Suprimentos */}
+          {movements.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                Sangrias & Suprimentos ({movements.length})
+                {totalSangrias > 0 && (
+                  <Badge variant="outline" className="text-red-600 border-red-200">
+                    -{formatCurrency(totalSangrias)}
+                  </Badge>
+                )}
+                {totalSuprimentos > 0 && (
+                  <Badge variant="outline" className="text-green-600 border-green-200">
+                    +{formatCurrency(totalSuprimentos)}
+                  </Badge>
+                )}
+              </h3>
+              <div className="space-y-2">
+                {movements.map((m) => {
+                  const isSangria = m.type === "sangria";
+                  const Icon = isSangria ? ArrowDownCircle : ArrowUpCircle;
+                  const color = isSangria ? "text-red-600" : "text-green-600";
+                  const methodLabel: Record<string, string> = {
+                    cash: "Dinheiro", pix: "PIX", credit_card: "Crédito", debit_card: "Débito", other: "Outro",
+                  };
+                  return (
+                    <Card key={m.id} className="bg-muted/30">
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2 flex-1 min-w-0">
+                            <Icon className={`h-4 w-4 mt-0.5 ${color} flex-shrink-0`} />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium truncate">{m.reason}</div>
+                              <div className="text-[11px] text-muted-foreground flex flex-wrap gap-2">
+                                <span>{m.profile?.full_name || "Operador"}</span>
+                                <span>•</span>
+                                <span>{format(new Date(m.created_at), "dd/MM 'às' HH:mm", { locale: ptBR })}</span>
+                                <span>•</span>
+                                <span>{methodLabel[m.payment_method] || m.payment_method}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <span className={`font-semibold text-sm ${color} flex-shrink-0`}>
+                            {isSangria ? "-" : "+"}{formatCurrency(Number(m.amount))}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Notes */}
           {caixa.notes && (
             <Card>
@@ -343,6 +465,15 @@ export function CaixaDetailModal({ open, onClose, caixa }: CaixaDetailModalProps
           )}
         </div>
       </DialogContent>
+
+      {caixa.id && (
+        <SangriaSuprimentoModal
+          open={movementModalOpen}
+          onClose={() => setMovementModalOpen(false)}
+          caixaId={caixa.id}
+          defaultType={movementType}
+        />
+      )}
     </Dialog>
   );
 }

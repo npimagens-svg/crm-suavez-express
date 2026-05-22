@@ -6,8 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Loader2, Gift, CheckCircle, Printer, FileText } from "lucide-react";
+import { AlertTriangle, Loader2, Gift, CheckCircle, Printer, FileText, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { Caixa } from "@/hooks/useCaixas";
+import { useCaixaMovements } from "@/hooks/useCaixaMovements";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { format } from "date-fns";
@@ -36,6 +37,12 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
   const [closedNotes, setClosedNotes] = useState<string | undefined>();
   const [closedAt, setClosedAt] = useState<Date>(new Date());
   const { salonId } = useAuth();
+  const { movements } = useCaixaMovements(open ? caixa?.id : undefined);
+
+  const sangriasCash = movements.filter(m => m.type === "sangria" && m.payment_method === "cash").reduce((s, m) => s + Number(m.amount), 0);
+  const suprimentosCash = movements.filter(m => m.type === "suprimento" && m.payment_method === "cash").reduce((s, m) => s + Number(m.amount), 0);
+  const totalSangrias = movements.filter(m => m.type === "sangria").reduce((s, m) => s + Number(m.amount), 0);
+  const totalSuprimentos = movements.filter(m => m.type === "suprimento").reduce((s, m) => s + Number(m.amount), 0);
 
   useEffect(() => {
     if (open && caixa?.id && salonId) {
@@ -341,6 +348,35 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
     </table>
   </div>
 
+  ${movements.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Sangrias & Suprimentos (${movements.length})</div>
+    <table style="border-collapse:collapse;width:100%">
+      <thead><tr style="background:#fafafa;font-size:11px;color:#666">
+        <th style="padding:4px 8px;text-align:left">Tipo</th>
+        <th style="padding:4px 8px;text-align:left">Motivo</th>
+        <th style="padding:4px 8px;text-align:left">Por</th>
+        <th style="padding:4px 8px;text-align:left">Forma</th>
+        <th style="padding:4px 8px;text-align:left">Hora</th>
+        <th style="padding:4px 8px;text-align:right">Valor</th>
+      </tr></thead>
+      <tbody>
+        ${movements.map((m) => {
+          const isSangria = m.type === "sangria";
+          const methodLbl: Record<string, string> = { cash: "Dinheiro", pix: "PIX", credit_card: "Crédito", debit_card: "Débito", other: "Outro" };
+          return `<tr>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:11px;color:${isSangria ? "#dc2626" : "#16a34a"};font-weight:600">${isSangria ? "Sangria" : "Suprimento"}</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:12px">${m.reason}</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:11px">${m.profile?.full_name || "Operador"}</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:11px">${methodLbl[m.payment_method] || m.payment_method}</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:11px">${format(new Date(m.created_at), "dd/MM HH:mm")}</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:12px;text-align:right;color:${isSangria ? "#dc2626" : "#16a34a"};font-weight:600">${isSangria ? "-" : "+"}${fmtCurr(Number(m.amount))}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  </div>` : ""}
+
   ${totalCredits > 0 || totalDebts > 0 ? `
   <div class="section">
     <div class="section-title">Créditos e Dívidas</div>
@@ -489,6 +525,33 @@ export function CloseCaixaModal({ open, onClose, onConfirm, caixa, isLoading }: 
                 <span className="font-medium text-primary">Dinheiro Esperado:</span>
                 <span className="text-right font-medium text-primary">{formatCurrency(expectedCash)}</span>
               </div>
+
+              {/* Sangrias / Suprimentos info */}
+              {(totalSangrias > 0 || totalSuprimentos > 0) && (
+                <div className="border-t pt-3 space-y-1.5 text-sm">
+                  {sangriasCash > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-red-600">
+                        <ArrowDownCircle className="h-3.5 w-3.5" />
+                        Sangrias (dinheiro):
+                      </span>
+                      <span className="text-red-600 font-medium">-{formatCurrency(sangriasCash)}</span>
+                    </div>
+                  )}
+                  {suprimentosCash > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-green-600">
+                        <ArrowUpCircle className="h-3.5 w-3.5" />
+                        Suprimentos (dinheiro):
+                      </span>
+                      <span className="text-green-600 font-medium">+{formatCurrency(suprimentosCash)}</span>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground italic pt-0.5">
+                    Já descontado do "Dinheiro" e do "Esperado" acima. Total de {movements.length} movimentação{movements.length > 1 ? "ões" : ""} no caixa.
+                  </p>
+                </div>
+              )}
 
               {/* Credits and Debts */}
               {(totalCredits > 0 || totalDebts > 0) && (
