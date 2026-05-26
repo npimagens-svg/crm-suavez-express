@@ -309,6 +309,22 @@ export default function Comandas() {
 
     // Determine target date (master can pick a date)
     const targetDate = comandaDate ? new Date(comandaDate + "T12:00:00") : new Date();
+
+    // Sanity check: data inválida (ex: ano 0006 por digitação errada "23/05" → "0006-05-23")
+    // ou data muito no passado/futuro. O trigger validate_comanda_insert no banco
+    // também protege, mas avisa antes de bater no servidor.
+    const now = new Date();
+    const minDate = new Date(now); minDate.setDate(minDate.getDate() - 60);
+    const maxDate = new Date(now); maxDate.setDate(maxDate.getDate() + 1);
+    if (Number.isNaN(targetDate.getTime()) || targetDate < minDate || targetDate > maxDate) {
+      toast({
+        title: "Data inválida",
+        description: "A data da comanda precisa estar entre 60 dias atrás e amanhã. Verifique o campo 'Data da Comanda'.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const isToday = isSameDay(targetDate, new Date());
 
     // Create comanda without caixa — caixa is linked only when closing
@@ -721,6 +737,7 @@ export default function Comandas() {
                   type="date"
                   value={comandaDate}
                   onChange={(e) => setComandaDate(e.target.value)}
+                  min={format(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000), "yyyy-MM-dd")}
                   max={format(new Date(), "yyyy-MM-dd")}
                   placeholder="Hoje"
                 />
