@@ -31,6 +31,7 @@ import FilaAcompanhar from "@/pages/FilaAcompanhar";
 import Fila from "@/pages/Fila";
 import Pendencias from "@/pages/Pendencias";
 import Fechamentos from "@/pages/Fechamentos";
+import ContasAPagar from "@/pages/ContasAPagar";
 
 const queryClient = new QueryClient();
 
@@ -100,6 +101,7 @@ function AppRoutes() {
         <Route path="/financeiro/*" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
         <Route path="/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
         <Route path="/financeiro/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
+        <Route path="/financeiro/contas-a-pagar" element={<ProtectedRoute><ContasAPagar /></ProtectedRoute>} />
         <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
         <Route path="/estoque/*" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
         <Route path="/marketing" element={<ProtectedRoute><Marketing /></ProtectedRoute>} />
@@ -165,6 +167,7 @@ function AppRoutes() {
       <Route path="/financeiro/*" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
       <Route path="/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
       <Route path="/financeiro/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
+      <Route path="/financeiro/contas-a-pagar" element={<ProtectedRoute><ContasAPagar /></ProtectedRoute>} />
       <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
       <Route path="/estoque/*" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
       <Route path="/marketing" element={<ProtectedRoute><Marketing /></ProtectedRoute>} />
