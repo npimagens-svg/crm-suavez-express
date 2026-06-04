@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Loader2, DollarSign, ChevronDown, ChevronUp, FileText, Printer, Gift, MinusCircle, Trash2 } from "lucide-react";
 import { useProfessionals } from "@/hooks/useProfessionals";
 import { useComandas } from "@/hooks/useComandas";
@@ -453,6 +454,36 @@ export default function Comissoes() {
 
     return Array.from(commissionMap.values()).filter(c => c.itemCount > 0);
   }, [professionals, filteredComandas, serviceMap, profServiceCommMap, commissionSettings]);
+
+  // Ajustes (bônus - desconto) por profissional no período (para o resumo geral)
+  const adjustmentsByProf = useMemo(() => {
+    const m = new Map<string, number>();
+    periodAdjustments.forEach(a => {
+      const cur = m.get(a.professional_id) || 0;
+      m.set(a.professional_id, cur + (a.adjustment_type === "bonus" ? Number(a.amount) : -Number(a.amount)));
+    });
+    return m;
+  }, [periodAdjustments]);
+
+  // Seleção de profissionais (ticar) na lista geral
+  const [selectedProfs, setSelectedProfs] = useState<Set<string>>(new Set());
+  const toggleProf = (id: string) =>
+    setSelectedProfs(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  const allSelected = professionalCommissions.length > 0 && professionalCommissions.every(c => selectedProfs.has(c.professional.id));
+  const toggleAllProfs = () =>
+    setSelectedProfs(allSelected ? new Set() : new Set(professionalCommissions.map(c => c.professional.id)));
+
+  const selectedSummary = useMemo(() => {
+    const rows = professionalCommissions.filter(c => selectedProfs.has(c.professional.id));
+    const totalServices = rows.reduce((s, c) => s + c.totalServices, 0);
+    const totalCommission = rows.reduce((s, c) => s + c.totalToPay, 0);
+    const totalAdj = rows.reduce((s, c) => s + (adjustmentsByProf.get(c.professional.id) || 0), 0);
+    return { count: rows.length, totalServices, totalCommission, totalAdj, totalPay: totalCommission + totalAdj };
+  }, [professionalCommissions, selectedProfs, adjustmentsByProf]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -1077,20 +1108,34 @@ export default function Comissoes() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-10">
+                          <Checkbox checked={allSelected} onCheckedChange={toggleAllProfs} aria-label="Selecionar todos" />
+                        </TableHead>
                         <TableHead>Profissional</TableHead>
                         <TableHead>Cargo</TableHead>
                         <TableHead className="text-right">Serviços</TableHead>
                         <TableHead className="text-right">Total Serviços</TableHead>
                         <TableHead className="text-right">Comissão</TableHead>
+                        <TableHead className="text-right">Ajustes</TableHead>
+                        <TableHead className="text-right">Total a pagar</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {professionalCommissions.map((item) => (
-                        <TableRow 
+                      {professionalCommissions.map((item) => {
+                        const adjNet = adjustmentsByProf.get(item.professional.id) || 0;
+                        return (
+                        <TableRow
                           key={item.professional.id}
-                          className="cursor-pointer hover:bg-muted/50"
+                          className={`cursor-pointer hover:bg-muted/50 ${selectedProfs.has(item.professional.id) ? "bg-primary/5" : ""}`}
                           onClick={() => setSelectedProfessional(item.professional.id)}
                         >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={selectedProfs.has(item.professional.id)}
+                              onCheckedChange={() => toggleProf(item.professional.id)}
+                              aria-label={`Selecionar ${item.professional.name}`}
+                            />
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <Avatar className="h-8 w-8">
@@ -1105,14 +1150,19 @@ export default function Comissoes() {
                           <TableCell>{item.professional.role || "-"}</TableCell>
                           <TableCell className="text-right">{item.itemCount}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.totalServices)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.totalToPay)}</TableCell>
+                          <TableCell className={`text-right ${adjNet > 0 ? "text-green-700" : adjNet < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            {adjNet === 0 ? "—" : `${adjNet > 0 ? "+" : ""}${formatCurrency(adjNet)}`}
+                          </TableCell>
                           <TableCell className="text-right font-bold text-primary">
-                            {formatCurrency(item.totalToPay)}
+                            {formatCurrency(item.totalToPay + adjNet)}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                       {professionalCommissions.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                             Nenhum profissional com comissões no período
                           </TableCell>
                         </TableRow>
@@ -1138,12 +1188,38 @@ export default function Comissoes() {
                   </div>
                   <div className="border-t pt-4">
                     <div className="flex justify-between">
-                      <span className="font-medium">Total Comissões:</span>
+                      <span className="font-medium">Total a pagar (todos):</span>
                       <span className="text-xl font-bold text-primary">
-                        {formatCurrency(professionalCommissions.reduce((sum, c) => sum + c.totalToPay, 0))}
+                        {formatCurrency(professionalCommissions.reduce((sum, c) => sum + c.totalToPay + (adjustmentsByProf.get(c.professional.id) || 0), 0))}
                       </span>
                     </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">Já com bônus e descontos do período.</p>
                   </div>
+
+                  {selectedSummary.count > 0 && (
+                    <div className="border-t pt-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">Selecionados ({selectedSummary.count})</span>
+                        <button className="text-xs text-muted-foreground hover:underline" onClick={() => setSelectedProfs(new Set())}>limpar</button>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Comissão:</span>
+                        <span>{formatCurrency(selectedSummary.totalCommission)}</span>
+                      </div>
+                      {selectedSummary.totalAdj !== 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Ajustes:</span>
+                          <span className={selectedSummary.totalAdj > 0 ? "text-green-700" : "text-destructive"}>
+                            {selectedSummary.totalAdj > 0 ? "+" : ""}{formatCurrency(selectedSummary.totalAdj)}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between pt-1 border-t">
+                        <span className="font-semibold">Total selecionados:</span>
+                        <span className="text-lg font-bold text-primary">{formatCurrency(selectedSummary.totalPay)}</span>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
