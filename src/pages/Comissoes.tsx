@@ -8,13 +8,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, Loader2, DollarSign, ChevronDown, ChevronUp, FileText, Printer } from "lucide-react";
+import { Search, Loader2, DollarSign, ChevronDown, ChevronUp, FileText, Printer, Gift, MinusCircle, Trash2 } from "lucide-react";
 import { useProfessionals } from "@/hooks/useProfessionals";
 import { useComandas } from "@/hooks/useComandas";
 import { useServices } from "@/hooks/useServices";
 import { useClients } from "@/hooks/useClients";
 import { useCommissionSettings } from "@/hooks/useCommissionSettings";
 import { useCurrentProfessional } from "@/hooks/useCurrentProfessional";
+import { useCommissionAdjustments, AdjustmentType } from "@/hooks/useCommissionAdjustments";
+import { useCommissionPayments } from "@/hooks/useCommissionPayments";
+import { CommissionAdjustmentModal } from "@/components/modals/CommissionAdjustmentModal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { useAuth } from "@/contexts/AuthContext";
@@ -59,7 +72,26 @@ export default function Comissoes() {
       setSelectedProfessional(currentProfessionalId);
     }
   }, [isProfessionalUser, currentProfessionalId]);
-  const { salonId } = useAuth();
+  const { salonId, user, userRole, isMaster } = useAuth();
+  const canManageAdjustments = !isProfessionalUser && (isMaster || userRole === "admin" || userRole === "manager");
+  const canPayCommission = isMaster || !isProfessionalUser;
+  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
+  const [adjustmentModalType, setAdjustmentModalType] = useState<AdjustmentType>("bonus");
+  const [adjustmentToDelete, setAdjustmentToDelete] = useState<{ id: string; label: string } | null>(null);
+  const [payConfirmOpen, setPayConfirmOpen] = useState(false);
+  const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
+  const {
+    adjustments: periodAdjustments,
+    createAdjustment,
+    deleteAdjustment,
+    isCreating: isCreatingAdjustment,
+    isDeleting: isDeletingAdjustment,
+  } = useCommissionAdjustments({
+    periodStart: dateStart,
+    periodEnd: dateEnd,
+    professionalId: selectedProfessional !== "all" ? selectedProfessional : undefined,
+  });
+  const { payments: commissionPayments, payCommissionAsync, isPaying, reverseCommission, isReversing } = useCommissionPayments();
   const { comandas, isLoading: loadingComandas } = useComandas();
   const { services, isLoading: loadingServices } = useServices();
   const { clients, isLoading: loadingClients } = useClients();
@@ -232,7 +264,14 @@ export default function Comissoes() {
     const totalCardFee = commissionDetails.reduce((sum, item) => sum + item.cardFee, 0);
     const totalNetValue = commissionDetails.reduce((sum, item) => sum + item.netValue, 0);
     const totalCommission = commissionDetails.reduce((sum, item) => sum + item.commissionValue, 0);
-    
+
+    const totalBonus = periodAdjustments
+      .filter(a => a.adjustment_type === "bonus")
+      .reduce((sum, a) => sum + Number(a.amount), 0);
+    const totalDiscount = periodAdjustments
+      .filter(a => a.adjustment_type === "discount")
+      .reduce((sum, a) => sum + Number(a.amount), 0);
+
     return {
       baseRateio: totalServices,
       servicos: totalServices,
@@ -247,10 +286,50 @@ export default function Comissoes() {
       totalRateio: totalCommission,
       totalCaixinhas: 0,
       totalValePresente: 0,
-      descontosBonus: 0,
-      totalPagar: totalCommission,
+      totalBonus,
+      totalDiscount,
+      descontosBonus: totalBonus - totalDiscount,
+      totalPagar: totalCommission + totalBonus - totalDiscount,
     };
-  }, [commissionDetails]);
+  }, [commissionDetails, periodAdjustments]);
+
+  const openAdjustmentModal = (type: AdjustmentType) => {
+    setAdjustmentModalType(type);
+    setAdjustmentModalOpen(true);
+  };
+
+  const handleConfirmDeleteAdjustment = () => {
+    if (!adjustmentToDelete) return;
+    deleteAdjustment(adjustmentToDelete.id);
+    setAdjustmentToDelete(null);
+  };
+
+  const currentPayment = useMemo(
+    () =>
+      commissionPayments.find(
+        (p) =>
+          p.professional_id === selectedProfessional &&
+          p.period_start === dateStart &&
+          p.period_end === dateEnd
+      ) || null,
+    [commissionPayments, selectedProfessional, dateStart, dateEnd]
+  );
+
+  const handlePayCommission = async () => {
+    if (!selectedProfessionalData) return;
+    await payCommissionAsync({
+      professional_id: selectedProfessional,
+      professional_name: selectedProfessionalData.name,
+      period_start: dateStart,
+      period_end: dateEnd,
+      total_amount: professionalTotals.totalPagar,
+      total_commission: professionalTotals.totalRateio,
+      total_bonus: professionalTotals.totalBonus,
+      total_discount: professionalTotals.totalDiscount,
+    });
+    setPayConfirmOpen(false);
+    handlePrint();
+  };
 
   // Group commission details by date for mobile view
   const dailyCommissions = useMemo(() => {
@@ -445,6 +524,24 @@ export default function Comissoes() {
       },
     });
 
+    // Ajustes do período (bônus e descontos)
+    if (periodAdjustments.length > 0) {
+      autoTable(doc, {
+        startY: ((doc as any).lastAutoTable?.finalY || 150) + 8,
+        head: [["Ajustes do período", "Data", "Tipo", "Motivo", "Valor"]],
+        body: periodAdjustments.map(a => [
+          "",
+          format(new Date(a.adjustment_date + "T00:00:00"), "dd/MM/yyyy"),
+          a.adjustment_type === "bonus" ? "Bônus" : "Desconto",
+          a.description || "-",
+          `${a.adjustment_type === "bonus" ? "+" : "-"}${formatCurrency(Number(a.amount))}`,
+        ]),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [234, 88, 12] },
+        columnStyles: { 4: { halign: "right" } },
+      });
+    }
+
     // Summary
     const finalY = (doc as any).lastAutoTable?.finalY || 150;
     const summaryY = finalY + 10;
@@ -459,6 +556,8 @@ export default function Comissoes() {
       ...(professionalTotals.cardFee > 0 ? [[`(-) Taxa de Cartão:`, `-${formatCurrency(professionalTotals.cardFee)}`]] : []),
       [`Valor Líquido:`, formatCurrency(professionalTotals.netValue)],
       [`Comissão:`, formatCurrency(professionalTotals.totalRateio)],
+      ...(professionalTotals.totalBonus > 0 ? [[`(+) Bônus:`, `+${formatCurrency(professionalTotals.totalBonus)}`]] : []),
+      ...(professionalTotals.totalDiscount > 0 ? [[`(-) Descontos:`, `-${formatCurrency(professionalTotals.totalDiscount)}`]] : []),
     ];
     lines.forEach(([label, value], i) => {
       doc.text(label, 14, summaryY + 7 + i * 5);
@@ -471,6 +570,26 @@ export default function Comissoes() {
     doc.setFont("helvetica", "bold");
     doc.text("Total a pagar:", 14, totalY);
     doc.text(formatCurrency(professionalTotals.totalPagar), 100, totalY, { align: "right" });
+
+    // Recibo + assinatura
+    const reciboY = totalY + 16;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("RECIBO", 14, reciboY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    const reciboText = `Declaro que recebi a importância de ${formatCurrency(professionalTotals.totalPagar)} referente à comissão do período de ${periodo}, e que estou de acordo com os valores apresentados neste relatório.`;
+    const reciboLines = doc.splitTextToSize(reciboText, 180);
+    doc.text(reciboLines, 14, reciboY + 7);
+
+    const signY = reciboY + 7 + reciboLines.length * 5 + 22;
+    doc.line(14, signY, 110, signY);
+    doc.setFont("helvetica", "bold");
+    doc.text(profName, 14, signY + 5);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text("Assinatura do profissional", 14, signY + 10);
+    doc.text("Data: ____ / ____ / ________", 140, signY);
 
     return doc;
   };
@@ -801,39 +920,143 @@ export default function Comissoes() {
                     </div>
                   </div>
 
-                  {/* Extras */}
-                  <div className="pb-3 border-b space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total Caixinhas:</span>
-                      <span>{formatCurrency(professionalTotals.totalCaixinhas)}</span>
+                  {/* Ajustes (Bônus e Descontos) com motivo inline */}
+                  <div className="pb-3 border-b space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Ajustes do período</span>
+                      {canManageAdjustments && (
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-green-700 hover:bg-green-50"
+                            onClick={() => openAdjustmentModal("bonus")}
+                            aria-label="Adicionar bônus"
+                            title="Adicionar bônus"
+                          >
+                            <Gift className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                            onClick={() => openAdjustmentModal("discount")}
+                            aria-label="Adicionar desconto"
+                            title="Adicionar desconto"
+                          >
+                            <MinusCircle className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total Vale-Presente:</span>
-                      <span>{formatCurrency(professionalTotals.totalValePresente)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Descontos e Bônus:</span>
-                      <span className={professionalTotals.descontosBonus < 0 ? "text-destructive" : ""}>
-                        {formatCurrency(professionalTotals.descontosBonus)}
-                      </span>
-                    </div>
+
+                    {periodAdjustments.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">
+                        Nenhum bônus ou desconto registrado.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {periodAdjustments.map(adj => {
+                          const isBonus = adj.adjustment_type === "bonus";
+                          return (
+                            <div key={adj.id} className="flex items-start gap-2 text-xs">
+                              <span className={`shrink-0 ${isBonus ? "text-green-700" : "text-destructive"}`}>
+                                {isBonus ? <Gift className="h-3.5 w-3.5" /> : <MinusCircle className="h-3.5 w-3.5" />}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="truncate font-medium" title={adj.description}>
+                                  {adj.description || (isBonus ? "Bônus" : "Desconto")}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {format(new Date(adj.adjustment_date + "T00:00:00"), "dd/MM/yyyy", { locale: ptBR })}
+                                </p>
+                              </div>
+                              <span className={`shrink-0 font-semibold ${isBonus ? "text-green-700" : "text-destructive"}`}>
+                                {isBonus ? "+" : "-"}{formatCurrency(Number(adj.amount))}
+                              </span>
+                              {canManageAdjustments && (
+                                <button
+                                  type="button"
+                                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                                  onClick={() =>
+                                    setAdjustmentToDelete({
+                                      id: adj.id,
+                                      label: `${isBonus ? "bônus" : "desconto"} de ${formatCurrency(Number(adj.amount))}`,
+                                    })
+                                  }
+                                  aria-label="Remover ajuste"
+                                  title="Remover"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {(professionalTotals.totalBonus > 0 || professionalTotals.totalDiscount > 0) && (
+                      <div className="flex justify-between text-sm pt-2 border-t border-dashed">
+                        <span className="text-muted-foreground">Líquido dos ajustes:</span>
+                        <span className={professionalTotals.descontosBonus > 0 ? "text-green-700 font-semibold" : professionalTotals.descontosBonus < 0 ? "text-destructive font-semibold" : ""}>
+                          {professionalTotals.descontosBonus > 0 ? "+" : ""}{formatCurrency(professionalTotals.descontosBonus)}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Total */}
                   <div className="pt-2">
                     <div className="flex justify-between items-center">
-                      <span className="font-semibold">Total a pagar:</span>
+                      <span className="font-semibold flex items-center gap-2">
+                        Total a pagar:
+                        {currentPayment && <Badge className="bg-emerald-600 hover:bg-emerald-600">PAGO</Badge>}
+                      </span>
                       <span className="text-2xl font-bold text-primary">
                         {formatCurrency(professionalTotals.totalPagar)}
                       </span>
                     </div>
                   </div>
 
-                  <Button className="w-full gap-2 mt-4" disabled={professionalTotals.totalPagar <= 0}>
-                    <DollarSign className="h-4 w-4" />
-                    Pagar Comissão
-                  </Button>
-                  
+                  {currentPayment ? (
+                    <div className="mt-4 space-y-2">
+                      <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-center">
+                        <p className="text-sm font-semibold text-emerald-700">
+                          ✓ Comissão paga em {format(new Date(currentPayment.paid_at), "dd/MM/yyyy")}
+                        </p>
+                        <p className="text-xs text-emerald-600">{formatCurrency(Number(currentPayment.total_amount))}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" className="flex-1 gap-2" onClick={handlePrint}>
+                          <Printer className="h-4 w-4" /> Recibo
+                        </Button>
+                        <Button variant="outline" className="flex-1 gap-2" onClick={handlePDF}>
+                          <FileText className="h-4 w-4" /> PDF
+                        </Button>
+                      </div>
+                      {canPayCommission && (
+                        <Button
+                          variant="ghost"
+                          className="w-full text-destructive text-xs h-8"
+                          onClick={() => setReverseConfirmOpen(true)}
+                          disabled={isReversing}
+                        >
+                          Estornar pagamento
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <Button
+                      className="w-full gap-2 mt-4"
+                      disabled={professionalTotals.totalPagar <= 0 || isPaying || !canPayCommission}
+                      onClick={() => setPayConfirmOpen(true)}
+                    >
+                      {isPaying ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
+                      Pagar Comissão
+                    </Button>
+                  )}
+
                   <button className="w-full text-sm text-primary hover:underline flex items-center justify-center gap-1">
                     Solicitar Recalculo
                     <span className="text-muted-foreground">ℹ</span>
@@ -927,6 +1150,80 @@ export default function Comissoes() {
           </div>
         )}
       </div>
+
+      <CommissionAdjustmentModal
+        open={adjustmentModalOpen}
+        onOpenChange={setAdjustmentModalOpen}
+        type={adjustmentModalType}
+        professionalId={selectedProfessional}
+        professionalName={selectedProfessionalData?.name || ""}
+        createdByName={user?.email || null}
+        onSubmit={createAdjustment}
+        isSubmitting={isCreatingAdjustment}
+      />
+
+      <AlertDialog open={!!adjustmentToDelete} onOpenChange={(o) => { if (!o) setAdjustmentToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover ajuste?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover o {adjustmentToDelete?.label}? O total a pagar será recalculado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingAdjustment}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleConfirmDeleteAdjustment(); }}
+              disabled={isDeletingAdjustment}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingAdjustment ? "Removendo..." : "Remover"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={payConfirmOpen} onOpenChange={setPayConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar pagamento de comissão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Registrar o pagamento de <strong>{formatCurrency(professionalTotals.totalPagar)}</strong> para{" "}
+              <strong>{selectedProfessionalData?.name}</strong> referente ao período de{" "}
+              {dateStart.split("-").reverse().join("/")} a {dateEnd.split("-").reverse().join("/")}?
+              <br /><br />
+              Isso lança a despesa no financeiro, marca o mês como pago e gera o recibo pra impressão e assinatura.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPaying}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handlePayCommission(); }} disabled={isPaying}>
+              {isPaying ? "Registrando..." : "Confirmar e gerar recibo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={reverseConfirmOpen} onOpenChange={setReverseConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Estornar pagamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O registro do pagamento e a despesa no financeiro serão removidos. O mês volta a aparecer como não pago.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isReversing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (currentPayment) reverseCommission(currentPayment); setReverseConfirmOpen(false); }}
+              disabled={isReversing}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isReversing ? "Estornando..." : "Estornar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayoutNew>
   );
 }
