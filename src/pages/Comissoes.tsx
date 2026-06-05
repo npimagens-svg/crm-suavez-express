@@ -258,6 +258,21 @@ export default function Comissoes() {
     return items;
   }, [selectedProfessional, filteredComandas, professionals, serviceMap, clientMap, profServiceCommMap, commissionSettings]);
 
+  // Busca na lista do profissional selecionado (comanda, cliente/serviço, valor)
+  const [detailSearch, setDetailSearch] = useState("");
+  const filteredDetails = useMemo(() => {
+    const q = detailSearch.trim().toLowerCase();
+    if (!q) return commissionDetails;
+    return commissionDetails.filter(it =>
+      it.comandaNumber.toLowerCase().includes(q) ||
+      it.clientName.toLowerCase().includes(q) ||
+      it.serviceName.toLowerCase().includes(q) ||
+      String(it.serviceValue).includes(q) ||
+      Number(it.serviceValue).toFixed(2).includes(q) ||
+      String(it.commissionValue).includes(q)
+    );
+  }, [commissionDetails, detailSearch]);
+
   // Calculate totals for selected professional
   const professionalTotals = useMemo(() => {
     const totalServices = commissionDetails.reduce((sum, item) => sum + item.serviceValue, 0);
@@ -335,7 +350,7 @@ export default function Comissoes() {
   // Group commission details by date for mobile view
   const dailyCommissions = useMemo(() => {
     const grouped = new Map<string, { items: CommissionItem[]; totalProduction: number; totalCommission: number }>();
-    commissionDetails.forEach(item => {
+    filteredDetails.forEach(item => {
       const existing = grouped.get(item.date);
       if (existing) {
         existing.items.push(item);
@@ -356,7 +371,7 @@ export default function Comissoes() {
         const [db, mb] = b.date.split("/").map(Number);
         return mb - ma || db - da;
       });
-  }, [commissionDetails]);
+  }, [filteredDetails]);
 
   const toggleDay = (date: string) => {
     setExpandedDays(prev => {
@@ -767,6 +782,17 @@ export default function Comissoes() {
                 </div>
               </div>
 
+              {/* Busca na lista do profissional */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por comanda, cliente ou valor..."
+                  value={detailSearch}
+                  onChange={(e) => setDetailSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+
               {/* Desktop: Detailed Services Table */}
               <div className="hidden md:block">
                 <Card>
@@ -786,7 +812,7 @@ export default function Comissoes() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {commissionDetails.map((item, idx) => (
+                        {filteredDetails.map((item, idx) => (
                           <TableRow key={`${item.comandaId}-${idx}`}>
                             <TableCell className="font-mono text-sm">{item.comandaNumber}</TableCell>
                             <TableCell>{item.date}</TableCell>
@@ -808,10 +834,10 @@ export default function Comissoes() {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {commissionDetails.length === 0 && (
+                        {filteredDetails.length === 0 && (
                           <TableRow>
                             <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                              Nenhum serviço encontrado no período
+                              {detailSearch ? "Nenhum resultado pra essa busca" : "Nenhum serviço encontrado no período"}
                             </TableCell>
                           </TableRow>
                         )}
