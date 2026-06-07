@@ -155,10 +155,10 @@ function ProfessionalSidebar({
 }
 
 // ===== MAIN FORM =====
-function ProfessionalForm({ professional }: { professional: Professional }) {
+function ProfessionalForm({ professional, onRequestDelete }: { professional: Professional; onRequestDelete: () => void }) {
   const { canDelete, isMaster, salonId } = useAuth();
   const { toast } = useToast();
-  const { updateProfessional, isUpdating, deactivateProfessional, reactivateProfessional } = useProfessionals();
+  const { updateProfessional, isUpdating, deactivateProfessional, reactivateProfessional, isReactivating } = useProfessionals();
   const { schedules, upsertSchedule, deleteSchedule, isSaving: isSavingSchedule } = useProfessionalWorkSchedules(professional.id);
   const { bankDetails, saveBankDetails, deleteBankDetails, isSaving: isSavingBank } = useProfessionalBankDetails(professional.id);
   const { rules, saveRules, isSaving: isSavingRules } = useProfessionalCommissionRules(professional.id);
@@ -446,10 +446,20 @@ function ProfessionalForm({ professional }: { professional: Professional }) {
             {isUpdating ? "Salvando..." : "Salvar Alterações"}
           </Button>
           {canDelete && professional.is_active && (
-            <Button variant="destructive" size="sm" onClick={() => {
-              // Will be handled by parent via deactivation
-            }}>
+            <Button variant="destructive" size="sm" className="gap-1" onClick={onRequestDelete}>
+              <Trash2 className="h-4 w-4" />
               Excluir
+            </Button>
+          )}
+          {canDelete && !professional.is_active && (
+            <Button
+              size="sm"
+              className="gap-1 bg-green-600 hover:bg-green-700 text-white"
+              disabled={isReactivating}
+              onClick={() => reactivateProfessional(professional.id)}
+            >
+              {isReactivating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Reativar
             </Button>
           )}
         </div>
@@ -1180,7 +1190,7 @@ export function Profissionais() {
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : selectedProfessional ? (
-          <ProfessionalForm professional={selectedProfessional} />
+          <ProfessionalForm professional={selectedProfessional} onRequestDelete={() => setTransferModalOpen(true)} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
             <div className="text-center space-y-2">
