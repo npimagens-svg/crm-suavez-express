@@ -26,6 +26,7 @@ import ClientLoyalty from "./pages/ClientLoyalty";
 import NotFound from "./pages/NotFound";
 import SetupWizard from "./pages/SetupWizard";
 import FilaPublica from "@/pages/FilaPublica";
+import ClubeEscova from "@/pages/ClubeEscova";
 import FilaComprar from "@/pages/FilaComprar";
 import FilaAcompanhar from "@/pages/FilaAcompanhar";
 import Fila from "@/pages/Fila";
@@ -112,6 +113,7 @@ function AppRoutes() {
         <Route path="/configuracoes/*" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
         <Route path="/fila-admin" element={<ProtectedRoute><Fila /></ProtectedRoute>} />
         <Route path="/fila" element={<FilaPublica />} />
+        <Route path="/clube-escova" element={<ClubeEscova />} />
         <Route path="/fila/comprar" element={<FilaComprar />} />
         <Route path="/fila/acompanhar/:id" element={<FilaAcompanhar />} />
         <Route path="/pendencias" element={<ProtectedRoute><Pendencias /></ProtectedRoute>} />
