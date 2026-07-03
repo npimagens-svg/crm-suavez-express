@@ -1,6 +1,7 @@
 import { DollarSign, Users, Calendar, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
+import { Sensitive } from "@/components/common/SensitiveData";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { useQuery } from "@tanstack/react-query";
 
@@ -11,9 +12,10 @@ interface StatCardProps {
   changeLabel: string;
   icon: React.ReactNode;
   loading?: boolean;
+  sensitive?: boolean;
 }
 
-function StatCard({ title, value, change, changeLabel, icon, loading }: StatCardProps) {
+function StatCard({ title, value, change, changeLabel, icon, loading, sensitive }: StatCardProps) {
   const isPositive = change > 0;
   const isNeutral = change === 0;
 
@@ -26,7 +28,9 @@ function StatCard({ title, value, change, changeLabel, icon, loading }: StatCard
             {loading ? (
               <div className="h-7 md:h-8 w-20 md:w-24 animate-pulse rounded bg-muted" />
             ) : (
-              <p className="text-xl md:text-2xl font-bold tracking-tight truncate">{value}</p>
+              <p className="text-xl md:text-2xl font-bold tracking-tight truncate">
+                {sensitive ? <Sensitive>{value}</Sensitive> : value}
+              </p>
             )}
             <div className="flex items-center gap-1 text-xs md:text-sm">
               {isNeutral ? (
@@ -239,6 +243,7 @@ export function DashboardStats({ professionalId }: DashboardStatsProps) {
       change: data?.revenueChange ?? 0,
       changeLabel: "vs mês anterior",
       icon: <DollarSign className="h-5 w-5 md:h-6 md:w-6" />,
+      sensitive: true,
     },
     {
       title: isProfessional ? "Meus Atendimentos" : "Atendimentos do Mês",
@@ -253,6 +258,7 @@ export function DashboardStats({ professionalId }: DashboardStatsProps) {
       change: data?.ticketChange ?? 0,
       changeLabel: "vs mês anterior",
       icon: <TrendingUp className="h-5 w-5 md:h-6 md:w-6" />,
+      sensitive: true,
     },
     {
       title: isProfessional ? "Clientes Atendidos" : "Novos Clientes",

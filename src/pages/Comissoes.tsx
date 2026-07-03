@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { AppLayoutNew } from "@/components/layout/AppLayoutNew";
+import { Sensitive } from "@/components/common/SensitiveData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -674,6 +675,7 @@ export default function Comissoes() {
 
   return (
     <AppLayoutNew>
+      <Sensitive block>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Comissões</h1>
@@ -1326,6 +1328,7 @@ export default function Comissoes() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </Sensitive>
     </AppLayoutNew>
   );
 }

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useState, useMemo, lazy, Suspense } from "react";
 import { AppLayoutNew } from "@/components/layout/AppLayoutNew";
+import { Sensitive } from "@/components/common/SensitiveData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -419,6 +420,7 @@ export default function Relatorios() {
 
   return (
     <AppLayoutNew>
+      <Sensitive block>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -721,6 +723,7 @@ export default function Relatorios() {
           </TabsContent>
         </Tabs>
       </div>
+      </Sensitive>
     </AppLayoutNew>
   );
 }

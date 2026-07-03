@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { SensitiveDataProvider } from "@/components/common/SensitiveData";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { useQuery } from "@tanstack/react-query";
 import Dashboard from "./pages/Dashboard";
@@ -197,7 +198,9 @@ function App() {
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
-            <AppRoutes />
+            <SensitiveDataProvider>
+              <AppRoutes />
+            </SensitiveDataProvider>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>

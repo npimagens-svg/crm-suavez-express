@@ -5,6 +5,7 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { TopServices } from "@/components/dashboard/TopServices";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { ProfessionalCommissionSummary } from "@/components/dashboard/ProfessionalCommissionSummary";
+import { Sensitive } from "@/components/common/SensitiveData";
 import { useCurrentProfessional } from "@/hooks/useCurrentProfessional";
 
 export default function Dashboard() {
@@ -28,7 +29,9 @@ export default function Dashboard() {
         <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
           {/* Revenue Chart - Takes 2 columns */}
           <div className="lg:col-span-2">
-            <RevenueChart />
+            <Sensitive block>
+              <RevenueChart />
+            </Sensitive>
           </div>
 
           {/* Commission Summary for professionals, Top Services for others */}
