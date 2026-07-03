@@ -80,6 +80,26 @@ function AppRoutes() {
     enabled: supabaseConfigured && !installerDisabled,
   });
 
+  // Rotas PÚBLICAS (bio, anúncio, QR da fila): respondem SEMPRE, antes de
+  // qualquer checagem de instalação — visitante anônimo não tem config no
+  // navegador e NUNCA pode cair no instalador.
+  const publicPathname = window.location.pathname;
+  const isPublicPath =
+    publicPathname === "/clube-escova" ||
+    publicPathname === "/fila" ||
+    publicPathname.startsWith("/fila/");
+  if (isPublicPath) {
+    return (
+      <Routes>
+        <Route path="/fila" element={<FilaPublica />} />
+        <Route path="/clube-escova" element={<ClubeEscova />} />
+        <Route path="/fila/comprar" element={<FilaComprar />} />
+        <Route path="/fila/acompanhar/:id" element={<FilaAcompanhar />} />
+        <Route path="*" element={<Navigate to="/fila" replace />} />
+      </Routes>
+    );
+  }
+
   // If installer was permanently disabled after first setup, skip all checks
   if (installerDisabled) {
     if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;

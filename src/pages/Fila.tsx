@@ -46,64 +46,129 @@ export default function Fila() {
     setPrevCount(entries.length);
   }, [entries.length]);
 
+  // Regra da casa: comanda aberta NA CHEGADA da cliente; cobrança só na saída.
+  // Abre (ou reaproveita, se já houver aberta) a comanda da cliente com o
+  // serviço da fila como primeiro item. Retorna ids pra quem chamou.
+  const abrirComandaDaChegada = async (
+    entry: QueueEntry
+  ): Promise<{ comandaId: string | null; clientId: string | null }> => {
+    if (!salonId) return { comandaId: null, clientId: null };
+
+    // 0. Get or auto-open caixa
+    let openCaixa = await getCurrentUserOpenCaixa();
+    if (!openCaixa) {
+      toast({ title: "Abrindo caixa automaticamente..." });
+      openCaixa = await openCaixaAsync({ opening_balance: 0 });
+      if (!openCaixa) {
+        toast({ title: "Erro ao abrir caixa", variant: "destructive" });
+        return { comandaId: null, clientId: null };
+      }
+    }
+
+    // 1. Find or create client by phone
+    let clientId = entry.customer_id;
+    if (!clientId && entry.customer_phone) {
+      const cleanPhone = entry.customer_phone.replace(/\D/g, "");
+      const { data: existingClient } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("salon_id", salonId)
+        .or(`phone.eq.${cleanPhone},phone.eq.${entry.customer_phone}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingClient) {
+        clientId = existingClient.id;
+      } else {
+        const { data: newClient } = await supabase
+          .from("clients")
+          .insert({
+            salon_id: salonId,
+            name: entry.customer_name,
+            phone: cleanPhone,
+            email: entry.customer_email || null,
+          })
+          .select("id")
+          .single();
+        clientId = newClient?.id || null;
+      }
+
+      // Update queue entry with client_id
+      if (clientId) {
+        await supabase.from("queue_entries").update({ customer_id: clientId }).eq("id", entry.id);
+      }
+    }
+    if (!clientId) return { comandaId: null, clientId: null };
+
+    // 2. Já existe comanda aberta da cliente? Reaproveita (chegada → atender não duplica)
+    const { data: existente } = await supabase
+      .from("comandas")
+      .select("id")
+      .eq("client_id", clientId)
+      .is("closed_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existente?.id) return { comandaId: existente.id, clientId };
+
+    // 3. Cria a comanda com o serviço da fila como primeiro item
+    const comanda = await createComandaAsync({
+      client_id: clientId,
+      professional_id: entry.assigned_professional_id || null,
+      caixa_id: openCaixa.id,
+    });
+    if (!comanda?.id) return { comandaId: null, clientId };
+
+    if (entry.service) {
+      await supabase.from("comanda_items").insert({
+        comanda_id: comanda.id,
+        service_id: entry.service_id,
+        professional_id: entry.assigned_professional_id || null,
+        description: entry.service.name,
+        item_type: "service",
+        quantity: 1,
+        unit_price: entry.service.price,
+        total_price: entry.service.price,
+      });
+
+      await supabase
+        .from("comandas")
+        .update({ subtotal: entry.service.price, total: entry.service.price })
+        .eq("id", comanda.id);
+    }
+
+    return { comandaId: comanda.id, clientId };
+  };
+
   const handleAddWalkIn = async (data: { customer_name: string; customer_phone: string; service_id: string }) => {
     try {
       await addToQueue({ customer_name: data.customer_name, customer_phone: data.customer_phone, service_id: data.service_id, source: "walk_in" });
-      toast({ title: "Cliente adicionada na fila!" });
+      // Walk-in já entra como checked_in (chegou) → comanda abre na hora
+      const { data: novaEntry } = await supabase
+        .from("queue_entries")
+        .select(`*, service:services(id, name, price, duration_minutes)`)
+        .eq("salon_id", salonId)
+        .eq("customer_phone", data.customer_phone)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (novaEntry) await abrirComandaDaChegada(novaEntry as QueueEntry);
+      toast({ title: "Cliente na fila e comanda aberta!" });
     } catch { toast({ title: "Erro ao adicionar", variant: "destructive" }); }
+  };
+
+  // Check-in = a cliente CHEGOU → marca na fila e abre a comanda dela
+  const handleCheckIn = async (entry: QueueEntry) => {
+    checkIn(entry.id);
+    const { comandaId } = await abrirComandaDaChegada(entry);
+    if (comandaId) toast({ title: "Check-in feito e comanda aberta!" });
   };
 
   const handleAssignProfessional = async (professionalId: string) => {
     if (!selectedEntry || !salonId) return;
     try {
-      // 0. Get or auto-open caixa
-      let openCaixa = await getCurrentUserOpenCaixa();
-      if (!openCaixa) {
-        toast({ title: "Abrindo caixa automaticamente..." });
-        const newCaixa = await openCaixaAsync({ opening_balance: 0 });
-        openCaixa = newCaixa;
-        if (!openCaixa) {
-          toast({ title: "Erro ao abrir caixa", variant: "destructive" });
-          return;
-        }
-      }
-
-      // 1. Find or create client by phone
-      let clientId = selectedEntry.customer_id;
-      if (!clientId && selectedEntry.customer_phone) {
-        const cleanPhone = selectedEntry.customer_phone.replace(/\D/g, "");
-        const { data: existingClient } = await supabase
-          .from("clients")
-          .select("id")
-          .eq("salon_id", salonId)
-          .or(`phone.eq.${cleanPhone},phone.eq.${selectedEntry.customer_phone}`)
-          .limit(1)
-          .maybeSingle();
-
-        if (existingClient) {
-          clientId = existingClient.id;
-        } else {
-          const { data: newClient } = await supabase
-            .from("clients")
-            .insert({
-              salon_id: salonId,
-              name: selectedEntry.customer_name,
-              phone: cleanPhone,
-              email: selectedEntry.customer_email || null,
-            })
-            .select("id")
-            .single();
-          clientId = newClient?.id || null;
-        }
-
-        // Update queue entry with client_id
-        if (clientId) {
-          await supabase
-            .from("queue_entries")
-            .update({ customer_id: clientId })
-            .eq("id", selectedEntry.id);
-        }
-      }
+      // 1. Garante a comanda (se o check-in já abriu na chegada, reaproveita)
+      const { comandaId, clientId } = await abrirComandaDaChegada(selectedEntry);
 
       // 2. Assign professional in queue (moves to in_service)
       const { error: assignError } = await supabase
@@ -111,46 +176,26 @@ export default function Fila() {
         .update({
           assigned_professional_id: professionalId,
           status: "in_service",
-          checked_in_at: new Date().toISOString(),
+          checked_in_at: selectedEntry.checked_in_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", selectedEntry.id);
       if (assignError) console.error("Assign error:", assignError);
 
-      // 3. Create comanda linked to client and caixa
-      const comanda = await createComandaAsync({
-        client_id: clientId,
-        professional_id: professionalId,
-        caixa_id: openCaixa.id,
-      });
-
-      // 4. Add the service as comanda item
-      if (comanda?.id && selectedEntry.service) {
-        await supabase.from("comanda_items").insert({
-          comanda_id: comanda.id,
-          service_id: selectedEntry.service_id,
-          professional_id: professionalId,
-          description: selectedEntry.service.name,
-          item_type: "service",
-          quantity: 1,
-          unit_price: selectedEntry.service.price,
-          total_price: selectedEntry.service.price,
-        });
-
-        // Update comanda totals
+      if (comandaId) {
+        // 3. Vincula o profissional à comanda e aos itens ainda sem profissional
+        await supabase.from("comandas").update({ professional_id: professionalId }).eq("id", comandaId);
         await supabase
-          .from("comandas")
-          .update({
-            subtotal: selectedEntry.service.price,
-            total: selectedEntry.service.price,
-          })
-          .eq("id", comanda.id);
+          .from("comanda_items")
+          .update({ professional_id: professionalId })
+          .eq("comanda_id", comandaId)
+          .is("professional_id", null);
 
-        // 5. Register payment in comanda (already paid online via Asaas)
-        if (selectedEntry.source === "online" && selectedEntry.payment_status === "confirmed") {
+        // 4. Pagamento online (Asaas) já confirmado → registra e fecha
+        if (selectedEntry.source === "online" && selectedEntry.payment_status === "confirmed" && selectedEntry.service) {
           const payMethod = selectedEntry.payment_method === "credit_card" ? "credit_card" : "pix";
           await supabase.from("payments").insert({
-            comanda_id: comanda.id,
+            comanda_id: comandaId,
             salon_id: salonId,
             payment_method: payMethod,
             payment_provider: "asaas", // pagamento online via fila → sempre Asaas
@@ -163,13 +208,10 @@ export default function Fila() {
           // Mark comanda as paid and closed
           await supabase
             .from("comandas")
-            .update({
-              is_paid: true,
-              closed_at: new Date().toISOString(),
-            })
-            .eq("id", comanda.id);
+            .update({ is_paid: true, closed_at: new Date().toISOString() })
+            .eq("id", comandaId);
 
-          // 6. Add to agenda for visual tracking
+          // Agenda for visual tracking
           await supabase.from("appointments").insert({
             salon_id: salonId,
             client_id: clientId,
@@ -178,24 +220,26 @@ export default function Fila() {
             scheduled_at: new Date().toISOString(),
             duration_minutes: selectedEntry.service.duration_minutes || 45,
             status: "in_progress",
-            notes: `Fila online - ${selectedEntry.source === "online" ? "Pagamento online" : "Presencial"}`,
+            notes: `Fila online - Pagamento online`,
             price: selectedEntry.service.price,
           });
 
-          // 7. Update caixa totals
-          await updateCaixaTotalsAsync({
-            caixaId: openCaixa.id,
-            paymentMethod: payMethod,
-            amount: selectedEntry.service.price,
-          });
+          // Caixa totals
+          const openCaixa = await getCurrentUserOpenCaixa();
+          if (openCaixa) {
+            await updateCaixaTotalsAsync({
+              caixaId: openCaixa.id,
+              paymentMethod: payMethod,
+              amount: selectedEntry.service.price,
+            });
+          }
         }
       }
 
-      toast({ title: "Comanda aberta!" });
+      toast({ title: "Atendimento iniciado!" });
 
-      // 5. Navigate to comanda
-      if (comanda?.id) {
-        navigate(`/comandas?comanda=${comanda.id}&edit=true`);
+      if (comandaId) {
+        navigate(`/comandas?comanda=${comandaId}&edit=true`);
       }
     } catch (err) {
       toast({ title: "Erro ao atribuir", variant: "destructive" });
@@ -286,7 +330,7 @@ export default function Fila() {
               <QueueCard key={entry.id} entry={entry}
                 isFirst={index === 0}
                 isLast={index === waitingEntries.length - 1}
-                onCheckIn={() => checkIn(entry.id)}
+                onCheckIn={() => handleCheckIn(entry)}
                 onAssignProfessional={() => { setSelectedEntry(entry); setAssignModalOpen(true); }}
                 onSkip={() => handleSkip(entry)}
                 onRemove={() => handleRemove(entry)}
@@ -299,18 +343,31 @@ export default function Fila() {
           <TabsContent value="atendimento">
             {inServiceEntries.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">Nenhum atendimento em andamento</p>
-            ) : inServiceEntries.map((entry, index) => (
-              <QueueCard key={entry.id} entry={entry}
-                isFirst={true} isLast={true}
-                onCheckIn={() => {}} onAssignProfessional={() => {}} onSkip={() => {}} onRemove={() => handleRemove(entry)}
-                onMoveUp={() => {}} onMoveDown={() => {}}
-                onComplete={() => {
-                  if (confirm(`Finalizar o atendimento de ${entry.customer_name}?`)) {
-                    complete(entry.id);
-                  }
-                }}
-              />
-            ))}
+            ) : inServiceEntries.map((entry) => {
+              // Fila de verdade: mostra há quanto tempo está "em atendimento"
+              // e cutuca a equipe a dar baixa quando passa do razoável.
+              const inicio = entry.checked_in_at || entry.created_at;
+              const mins = inicio ? Math.max(0, Math.round((Date.now() - new Date(inicio).getTime()) / 60000)) : null;
+              return (
+                <div key={entry.id} className="space-y-1">
+                  {mins !== null && (
+                    <p className={`text-xs px-1 ${mins > 90 ? "text-red-600 font-semibold" : "text-muted-foreground"}`}>
+                      Em atendimento há {mins} min{mins > 90 ? " — já terminou? Finaliza pra fila ficar de verdade" : ""}
+                    </p>
+                  )}
+                  <QueueCard entry={entry}
+                    isFirst={true} isLast={true}
+                    onCheckIn={() => {}} onAssignProfessional={() => {}} onSkip={() => {}} onRemove={() => handleRemove(entry)}
+                    onMoveUp={() => {}} onMoveDown={() => {}}
+                    onComplete={() => {
+                      if (confirm(`Finalizar o atendimento de ${entry.customer_name}?`)) {
+                        complete(entry.id);
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })}
           </TabsContent>
 
           <TabsContent value="leads">
