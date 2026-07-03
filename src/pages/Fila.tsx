@@ -191,7 +191,9 @@ export default function Fila() {
           .eq("comanda_id", comandaId)
           .is("professional_id", null);
 
-        // 4. Pagamento online (Asaas) já confirmado → registra e fecha
+        // 4. Pagamento online (Asaas) já confirmado → registra o pagamento,
+        // mas a comanda FICA ABERTA até a saída: dá pra lançar serviços extras
+        // e o valor já pago via Asaas aparece abatido no fechamento da comanda.
         if (selectedEntry.source === "online" && selectedEntry.payment_status === "confirmed" && selectedEntry.service) {
           const payMethod = selectedEntry.payment_method === "credit_card" ? "credit_card" : "pix";
           await supabase.from("payments").insert({
@@ -204,12 +206,6 @@ export default function Fila() {
             net_amount: selectedEntry.service.price,
             notes: `Pagamento online via Asaas - fila ${selectedEntry.id}`,
           });
-
-          // Mark comanda as paid and closed
-          await supabase
-            .from("comandas")
-            .update({ is_paid: true, closed_at: new Date().toISOString() })
-            .eq("id", comandaId);
 
           // Agenda for visual tracking
           await supabase.from("appointments").insert({
