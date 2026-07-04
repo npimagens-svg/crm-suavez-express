@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronUp, ChevronDown, CheckCircle, UserPlus, SkipForward, X, Clock, CreditCard, Banknote, AlertCircle } from "lucide-react";
+import { ChevronUp, ChevronDown, CheckCircle, UserPlus, SkipForward, X, Clock, CreditCard, Banknote, AlertCircle, Crown } from "lucide-react";
 import type { QueueEntry } from "@/types/queue";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -51,6 +51,12 @@ export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessio
               <span className="font-medium truncate">{entry.customer_name}</span>
               <Badge variant="outline" className={status.className}>{status.label}</Badge>
               <Badge variant="outline">{entry.source === "online" ? "Online" : "Presencial"}</Badge>
+              {entry.payment_method === "clube" && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-400 font-semibold">
+                  <Crown className="h-3 w-3 mr-1" />
+                  CLUBE — já paga
+                </Badge>
+              )}
               {entry.source === "online" && entry.payment_status === "confirmed" && (
                 <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-300">
                   {entry.payment_method === "credit_card" ? (
