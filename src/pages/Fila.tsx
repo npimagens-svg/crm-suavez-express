@@ -27,7 +27,7 @@ export default function Fila() {
   const navigate = useNavigate();
   const { salonId } = useAuth();
   const { toast } = useToast();
-  const { entries, stats, addToQueue, checkIn, assignProfessional, skip, remove, reorder, complete } = useQueue();
+  const { entries, stats, addToQueue, checkIn, assignProfessional, skip, remove, markNoShow, reorder, complete } = useQueue();
   const { pendingLeads, notifiedLeads, markNotified } = useQueueLeads();
   const { getCurrentUserOpenCaixa, openCaixaAsync, updateCaixaTotalsAsync } = useCaixas();
   const { createComandaAsync } = useComandas();
@@ -330,6 +330,7 @@ export default function Fila() {
                 onAssignProfessional={() => { setSelectedEntry(entry); setAssignModalOpen(true); }}
                 onSkip={() => handleSkip(entry)}
                 onRemove={() => handleRemove(entry)}
+                onNoShow={() => markNoShow(entry.id)}
                 onMoveUp={() => handleMoveUp(index)}
                 onMoveDown={() => handleMoveDown(index)}
               />

@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronUp, ChevronDown, CheckCircle, UserPlus, SkipForward, X, Clock, CreditCard, Banknote, AlertCircle, Crown } from "lucide-react";
+import { ChevronUp, ChevronDown, CheckCircle, UserPlus, SkipForward, X, Clock, CreditCard, Banknote, AlertCircle, Crown, UserX } from "lucide-react";
 import type { QueueEntry } from "@/types/queue";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -14,6 +14,7 @@ interface QueueCardProps {
   onAssignProfessional: () => void;
   onSkip: () => void;
   onRemove: () => void;
+  onNoShow?: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onComplete?: () => void;
@@ -25,7 +26,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   in_service: { label: "Em atendimento", className: "bg-orange-100 text-orange-800" },
 };
 
-export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessional, onSkip, onRemove, onMoveUp, onMoveDown, onComplete }: QueueCardProps) {
+export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessional, onSkip, onRemove, onNoShow, onMoveUp, onMoveDown, onComplete }: QueueCardProps) {
   const status = statusConfig[entry.status] || statusConfig.waiting;
   const timeInQueue = formatDistanceToNow(new Date(entry.created_at), { locale: ptBR, addSuffix: false });
 
@@ -105,6 +106,12 @@ export function QueueCard({ entry, isFirst, isLast, onCheckIn, onAssignProfessio
               <X className="h-4 w-4 mr-1" />
               Remover
             </Button>
+            {onNoShow && (
+              <Button size="sm" variant="outline" className="text-slate-600 border-slate-300 hover:bg-slate-50" onClick={onNoShow}>
+                <UserX className="h-4 w-4 mr-1" />
+                Não atendida
+              </Button>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-2 pl-10">

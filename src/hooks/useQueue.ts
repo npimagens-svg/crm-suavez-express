@@ -230,6 +230,21 @@ export function useQueue() {
     },
   });
 
+  // "Não atendida": encerra a entrada SEM gerar crédito (cliente desistiu/estornada/não compareceu)
+  const noShowMutation = useMutation({
+    mutationFn: async (entryId: string) => {
+      const { error } = await supabase
+        .from("queue_entries")
+        .update({ status: "no_show", updated_at: new Date().toISOString() })
+        .eq("id", entryId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["queue", salonId] });
+      toast({ title: "Marcada como não atendida (sem crédito)" });
+    },
+  });
+
   const reorderMutation = useMutation({
     mutationFn: async (orderedIds: string[]) => {
       const updates = orderedIds.map((id, index) =>
@@ -267,6 +282,7 @@ export function useQueue() {
     complete: completeMutation.mutate,
     skip: skipMutation.mutate,
     remove: removeMutation.mutate,
+    markNoShow: noShowMutation.mutate,
     reorder: reorderMutation.mutate,
   };
 }
