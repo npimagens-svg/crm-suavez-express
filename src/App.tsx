@@ -51,7 +51,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
+  const { user, loading, userRole } = useAuth();
+  // Profissional loga e cai DIRETO no terminal de atendimento (mobile), não na Dashboard.
+  const homeElement = userRole === "professional"
+    ? <Navigate to="/atendimento" replace />
+    : <Dashboard />;
 
   // If wizard was permanently disabled after setup (baked into build via Vercel env var)
   const installerDisabled = import.meta.env.VITE_INSTALLER_ENABLED === "false";
@@ -108,7 +112,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/setup" element={<Navigate to="/auth" replace />} />
         <Route path="/auth" element={user ? <Navigate to="/" replace /> : <AuthNew />} />
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute>{homeElement}</ProtectedRoute>} />
         <Route path="/agenda" element={<ProtectedRoute><Agenda /></ProtectedRoute>} />
         <Route path="/agenda/*" element={<ProtectedRoute><Agenda /></ProtectedRoute>} />
         <Route path="/clientes" element={<ProtectedRoute><Clientes /></ProtectedRoute>} />
@@ -177,7 +181,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/setup" element={<SetupWizard />} />
       <Route path="/auth" element={user ? <Navigate to="/" replace /> : <AuthNew />} />
-      <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/" element={<ProtectedRoute>{homeElement}</ProtectedRoute>} />
       <Route path="/agenda" element={<ProtectedRoute><Agenda /></ProtectedRoute>} />
       <Route path="/agenda/*" element={<ProtectedRoute><Agenda /></ProtectedRoute>} />
       <Route path="/clientes" element={<ProtectedRoute><Clientes /></ProtectedRoute>} />
