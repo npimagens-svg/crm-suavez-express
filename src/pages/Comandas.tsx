@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppLayoutNew } from "@/components/layout/AppLayoutNew";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { DeleteComandaModal } from "@/components/modals/DeleteComandaModal";
 import { ClientModal } from "@/components/modals/ClientModal";
 import { ClientSearchSelect } from "@/components/shared/ClientSearchSelect";
 import { useComandas, Comanda, ComandaInput } from "@/hooks/useComandas";
+import { useSensitive } from "@/components/common/SensitiveData";
 import { useClients } from "@/hooks/useClients";
 import { useProfessionals } from "@/hooks/useProfessionals";
 import { useServices } from "@/hooks/useServices";
@@ -350,11 +351,30 @@ export default function Comandas() {
     return `Nº${num} (${dateStr})`;
   };
 
+  // EDITAR comanda exige a mesma senha da visualização de comissões
+  const { active: senhaAtiva, locked: senhaTravada, requestUnlock } = useSensitive();
+  const pendingEditRef = useRef<Comanda | null>(null);
+
   const handleOpenComanda = (comanda: Comanda, isEditing = false) => {
+    if (isEditing && senhaAtiva && senhaTravada) {
+      pendingEditRef.current = comanda;
+      requestUnlock();
+      return;
+    }
     setEditingClosedComanda(isEditing && !!comanda.closed_at);
     setSelectedComanda(comanda);
     setComandaModalOpen(true);
   };
+
+  // Destravou a senha com uma edição pendente? Abre direto (sem 2º clique).
+  useEffect(() => {
+    if (!senhaTravada && pendingEditRef.current) {
+      const c = pendingEditRef.current;
+      pendingEditRef.current = null;
+      handleOpenComanda(c, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [senhaTravada]);
 
   const handleCloseComandaModal = () => {
     setSelectedComanda(null);

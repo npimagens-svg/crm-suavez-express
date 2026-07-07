@@ -126,6 +126,18 @@ export function useCaixas() {
 
   const closeCaixaMutation = useMutation({
     mutationFn: async ({ caixaId, closingBalance, notes }: { caixaId: string; closingBalance: number; notes?: string }) => {
+      // TRAVA: caixa não fecha com comanda aberta (evita venda sem registro no dia)
+      const { count: abertas, error: abertasError } = await supabase
+        .from("comandas")
+        .select("id", { count: "exact", head: true })
+        .eq("salon_id", salonId)
+        .is("closed_at", null);
+      if (abertasError) throw abertasError;
+      if ((abertas ?? 0) > 0) {
+        throw new Error(
+          `Existem ${abertas} comanda(s) aberta(s). Feche (ou receba) todas antes de fechar o caixa.`,
+        );
+      }
       const { data, error } = await supabase
         .from("caixas")
         .update({

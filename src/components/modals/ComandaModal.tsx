@@ -146,6 +146,12 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
   }>>([]);
   // Creditos selecionados pra aplicar nesta comanda
   const [appliedCreditIds, setAppliedCreditIds] = useState<string[]>([]);
+  // Creditos da FILA (pagou online e nao foi atendida → credito 30d) — tabela customer_credits
+  const [filaCredits, setFilaCredits] = useState<Array<{
+    id: string;
+    amount: number;
+    expires_at: string;
+  }>>([]);
   // Discount efetivo da comanda (lido da prop + somas locais ao aplicar credito) — espelho local
   const [localDiscount, setLocalDiscount] = useState<number>(0);
   const [packagePopoverOpen, setPackagePopoverOpen] = useState(false);
@@ -323,6 +329,38 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
       .then(({ data }) => {
         setAvailableCredits((data as any) || []);
       });
+  }, [open, comanda?.client_id]);
+
+  // Load creditos da FILA (customer_credits, match por telefone do cliente)
+  useEffect(() => {
+    if (!open || !comanda?.client_id) {
+      setFilaCredits([]);
+      return;
+    }
+    (async () => {
+      const { data: cli } = await supabase
+        .from("clients")
+        .select("phone")
+        .eq("id", comanda.client_id)
+        .maybeSingle();
+      const dig = String((cli as any)?.phone || "").replace(/\D/g, "");
+      if (dig.length < 8) {
+        setFilaCredits([]);
+        return;
+      }
+      const chave = dig.slice(-8);
+      const nowIso = new Date().toISOString();
+      const { data } = await supabase
+        .from("customer_credits")
+        .select("id, amount, expires_at, customer_phone")
+        .eq("used", false)
+        .gt("expires_at", nowIso)
+        .order("expires_at", { ascending: true });
+      const meus = ((data as any) || []).filter(
+        (c: any) => String(c.customer_phone || "").replace(/\D/g, "").slice(-8) === chave,
+      );
+      setFilaCredits(meus);
+    })();
   }, [open, comanda?.client_id]);
 
   // Check if comanda's caixa is closed (locked state)
@@ -1936,6 +1974,54 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                         </div>
                       );
                     })}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Credito da FILA (pagou online e nao foi atendida) */}
+              {comanda?.client_id && filaCredits.length > 0 && !isComandaLocked && (
+                <Card className="border-amber-400/60 bg-amber-50">
+                  <CardContent className="p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                      <Gift className="h-4 w-4" />
+                      Crédito da fila online (pagou e não foi atendida)
+                    </div>
+                    {filaCredits.map((credit) => (
+                      <div key={credit.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span>
+                          {formatCurrency(Number(credit.amount))} · vence{" "}
+                          {new Date(credit.expires_at).toLocaleDateString("pt-BR")}
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const creditAmt = Number(credit.amount);
+                              const newDiscount = localDiscount + creditAmt;
+                              const newTotal = Math.max(0, subtotal - newDiscount);
+                              const { error: errCredit } = await supabase
+                                .from("customer_credits")
+                                .update({ used: true, used_at: new Date().toISOString() })
+                                .eq("id", credit.id);
+                              if (errCredit) throw errCredit;
+                              const { error: errCom } = await supabase
+                                .from("comandas")
+                                .update({ discount: newDiscount, total: newTotal })
+                                .eq("id", comanda.id);
+                              if (errCom) throw errCom;
+                              setLocalDiscount(newDiscount);
+                              setFilaCredits((prev) => prev.filter((c) => c.id !== credit.id));
+                              queryClient.invalidateQueries({ queryKey: ["comandas"] });
+                              toast({ title: `Crédito da fila de R$ ${creditAmt.toFixed(2)} aplicado!` });
+                            } catch (e: any) {
+                              toast({ title: "Erro ao aplicar crédito da fila", description: e?.message, variant: "destructive" });
+                            }
+                          }}
+                        >
+                          Aplicar
+                        </Button>
+                      </div>
+                    ))}
                   </CardContent>
                 </Card>
               )}
