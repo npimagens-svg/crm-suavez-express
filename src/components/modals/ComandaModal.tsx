@@ -1526,8 +1526,99 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                 )}
               </div>
 
-              {/* Items Table */}
-              <Card>
+              {/* Items — MOBILE: cards empilhados (o profissional lança/edita pelo celular) */}
+              <div className="md:hidden space-y-3">
+                {isLoading ? (
+                  <div className="text-center py-6"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></div>
+                ) : editableItems.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground text-sm">Nenhum serviço adicionado</div>
+                ) : (
+                  editableItems.map((item) => {
+                    const nome = item.description?.includes("📦") ? item.description.split(" — ")[0] : item.description;
+                    return (
+                    <div key={item.id} className="rounded-lg border p-3 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-medium leading-tight">{nome}</span>
+                        <span className="font-semibold whitespace-nowrap">{formatCurrency(item.total_price)}</span>
+                      </div>
+
+                      {item.isEditing ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <Label className="text-[11px] text-muted-foreground">Qtd</Label>
+                              <Input type="number" min="1" className="h-11" value={item.editQuantity}
+                                onChange={(e) => updateItemField(item.id, 'editQuantity', parseInt(e.target.value) || 1)} />
+                            </div>
+                            <div>
+                              <Label className="text-[11px] text-muted-foreground">Valor</Label>
+                              <Input type="number" step="0.01" className="h-11 text-right" value={item.editUnitPrice}
+                                onChange={(e) => updateItemField(item.id, 'editUnitPrice', parseFloat(e.target.value) || 0)} />
+                            </div>
+                            <div>
+                              <Label className="text-[11px] text-muted-foreground">Desc%</Label>
+                              <Input type="number" min="0" max="100" className="h-11 text-right" value={item.editDiscount || 0}
+                                onChange={(e) => updateItemField(item.id, 'editDiscount', parseFloat(e.target.value) || 0)} />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button className="flex-1 h-11 gap-2" onClick={() => saveItemChanges(item)}><CheckCircle className="h-4 w-4" /> Salvar</Button>
+                            <Button variant="outline" className="h-11" onClick={() => toggleEditItem(item.id)}><X className="h-4 w-4" /></Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <Select value={item.editProfessionalId || item.professional_id || comanda.professional_id || ""}
+                            onValueChange={(value) => updateItemProfessional(item.id, value)}>
+                            <SelectTrigger className="h-11"><SelectValue placeholder="Profissional" /></SelectTrigger>
+                            <SelectContent>
+                              {professionals.filter(p => p.is_active).map((prof) => (
+                                <SelectItem key={prof.id} value={prof.id}>{prof.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <div className="flex items-center justify-between text-sm text-muted-foreground">
+                            <span>Qtd {item.quantity} · {formatCurrency(item.unit_price)}{(item.editDiscount || 0) > 0 ? ` · -${item.editDiscount}%` : ""}</span>
+                            {item.service_id && (
+                              <Button variant="ghost" size="sm" className="h-8 gap-1 text-muted-foreground"
+                                onClick={() => toggleProductsExpanded(item.id)}>
+                                <Package className="h-4 w-4" /> Produtos
+                              </Button>
+                            )}
+                          </div>
+                          {!isComandaLocked && (
+                            <div className="flex gap-2">
+                              <Button variant="outline" className="flex-1 h-11 gap-2" onClick={() => toggleEditItem(item.id)}>
+                                <Pencil className="h-4 w-4" /> Editar
+                              </Button>
+                              <Button variant="outline" className="h-11 text-destructive" onClick={() => removeItem(item.id)} disabled={isRemoving}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                          {item.service_id && item.isProductsExpanded && (
+                            <ComandaServiceProducts
+                              serviceId={item.service_id}
+                              comandaItemId={item.id}
+                              serviceName={item.description}
+                              quantity={item.quantity}
+                              isExpanded={!!item.isProductsExpanded}
+                              onToggleExpand={() => toggleProductsExpanded(item.id)}
+                              onProductUsageChange={handleProductUsageChange}
+                              disabled={!!isComandaLocked}
+                              savedProductCost={item.product_cost || 0}
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Items Table — DESKTOP */}
+              <Card className="hidden md:block">
                 <CardContent className="p-0 overflow-x-auto">
                   <Table className="min-w-0">
                     <TableHeader>
@@ -1868,7 +1959,7 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
             <TabsContent value="pagamento" className="space-y-4 mt-4">
               {/* Avec-style Summary Cards — 5 columns */}
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 md:gap-3">
                 <Card className="border">
                   <CardContent className="p-3">
                     <Label className="text-xs text-muted-foreground block mb-1">Caixa Responsável:</Label>
@@ -2106,7 +2197,7 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
               {/* Payment Methods */}
               <Card>
                 <CardContent className="p-4 space-y-4">
-                  <div className="flex gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
+                  <div className="hidden md:flex gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
                     <span className="w-8 shrink-0"></span>
                     <span className="w-[140px] shrink-0">Forma de Pagamento</span>
                     <span className="flex-1 min-w-0">Banco/Bandeira</span>
@@ -2127,7 +2218,7 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                         </span>
                       </div>
                     ) : (
-                    <div key={payment.id} className="flex gap-2 items-center">
+                    <div key={payment.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center">
                       <Button
                         variant="ghost"
                         size="icon"
