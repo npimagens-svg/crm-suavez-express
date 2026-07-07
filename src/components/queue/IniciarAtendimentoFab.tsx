@@ -179,18 +179,15 @@ export function IniciarAtendimentoFab() {
   return (
     <>
       {/* FAB */}
-      <div className="fixed bottom-6 left-6 z-50 flex flex-col items-start gap-1.5">
+      <div className="w-full bg-green-600 text-white px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
         <Button
           onClick={() => setOpen(true)}
-          className="h-14 rounded-full shadow-lg gap-2 px-6 text-base font-semibold bg-green-600 hover:bg-green-700 text-white"
-          size="lg"
+          className="h-11 rounded-full gap-2 px-5 font-semibold bg-white text-green-700 hover:bg-white/90"
         >
-          <Plus className="h-6 w-6" />
+          <Plus className="h-5 w-5" />
           Abrir Comanda
         </Button>
-        <span className="text-xs font-semibold text-green-800 bg-white/90 rounded-full px-3 py-1 shadow-sm">
-          Quando a cliente chegar, comece aqui
-        </span>
+        <span className="text-sm font-medium">Quando a cliente chegar, comece aqui</span>
       </div>
 
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>

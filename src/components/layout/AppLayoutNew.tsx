@@ -11,10 +11,10 @@ export function AppLayoutNew({ children }: AppLayoutNewProps) {
     <div className="min-h-screen bg-background flex flex-col">
       <AppHeaderNew />
       <TopNavigation />
+      <IniciarAtendimentoFab />
       <main className="p-2 md:p-4 lg:p-6 flex-1 overflow-x-hidden">
         {children}
       </main>
-      <IniciarAtendimentoFab />
     </div>
   );
 }
