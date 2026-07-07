@@ -82,6 +82,9 @@ interface Payment {
   bankAccountId?: string | null;
   cardBrandId?: string | null;
   installments?: number;
+  provider?: string | null;
+  // Pagamento online (Asaas via fila): já recebido, não pode ser editado nem removido no fechamento.
+  locked?: boolean;
 }
 
 const PAYMENT_METHODS = [
@@ -492,6 +495,9 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
         bankAccountId: p.bank_account_id || null,
         cardBrandId: p.card_brand_id || null,
         installments: p.installments || 1,
+        provider: p.payment_provider || null,
+        // Pagamento online (Asaas) já recebido pela fila → travado no fechamento.
+        locked: p.payment_provider === "asaas",
       })));
     }
   };
@@ -912,12 +918,14 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
   };
 
   const removePaymentRow = (paymentId: string) => {
-    setPayments(prev => prev.filter(p => p.id !== paymentId));
+    // Pagamento online (Asaas) é travado: não pode ser removido no fechamento.
+    setPayments(prev => prev.filter(p => p.id !== paymentId || p.locked));
   };
 
   const updatePayment = (paymentId: string, field: string, value: string | number) => {
     setPayments(prev => prev.map(p => {
       if (p.id !== paymentId) return p;
+      if (p.locked) return p; // travado: pagamento online não editável
       const updated = { ...p, [field]: value };
       // Auto-select card brand when switching to card payment and only one brand exists
       if (field === 'method' && (value === 'credit_card' || value === 'debit_card')) {
@@ -2099,6 +2107,17 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                   </div>
                   
                   {payments.map((payment, index) => (
+                    payment.locked ? (
+                      <div key={payment.id} className="flex items-center gap-2 rounded-md border border-green-500 bg-green-50 px-3 py-2 dark:bg-green-950/30">
+                        <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
+                        <span className="flex-1 text-sm font-medium text-green-800 dark:text-green-300">
+                          Pago online via Asaas · já recebido, não editável
+                        </span>
+                        <span className="text-sm font-semibold text-green-800 dark:text-green-300 tabular-nums">
+                          {formatCurrency(payment.amount)}
+                        </span>
+                      </div>
+                    ) : (
                     <div key={payment.id} className="flex gap-2 items-center">
                       <Button
                         variant="ghost"
@@ -2221,6 +2240,7 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                         Dif
                       </Button>
                     </div>
+                    )
                   ))}
 
                   <Button variant="outline" size="sm" className="gap-2" onClick={addPaymentRow}>
