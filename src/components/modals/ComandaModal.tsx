@@ -940,8 +940,12 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
   const subtotal = editableItems.reduce((acc, item) => acc + Number(item.total_price), 0);
   const totalPayments = payments.reduce((acc, p) => acc + p.amount, 0);
+  // Pagamentos JÁ recebidos (online/Asaas, travados) — abatem o que ainda falta cobrar no balcão
+  const totalJaRecebido = payments.filter(p => p.locked).reduce((acc, p) => acc + p.amount, 0);
   // Total efetivo a cobrar — abate o discount da comanda (cashback aplicado, etc)
   const totalACobrar = Math.max(0, subtotal - Number(comanda?.discount || 0));
+  // O que a recepção ainda precisa cobrar (desconta o que já entrou online)
+  const totalACobrarLiquido = Math.max(0, totalACobrar - totalJaRecebido);
   const difference = totalACobrar - totalPayments;
 
   const handlePrintReceipt = () => {
@@ -2036,14 +2040,19 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
               {/* Total a Cobrar — desconto da comanda (cashback aplicado etc) */}
               <div className="text-center py-2">
-                {Number(comanda?.discount || 0) > 0 ? (
+                {(Number(comanda?.discount || 0) > 0 || totalJaRecebido > 0) ? (
                   <>
-                    <div className="flex justify-center items-baseline gap-3 text-sm text-muted-foreground">
+                    <div className="flex justify-center items-baseline gap-3 text-sm text-muted-foreground flex-wrap">
                       <span>Subtotal: {formatCurrency(subtotal)}</span>
-                      <span className="text-green-600">- Desconto cashback: {formatCurrency(Number(comanda?.discount || 0))}</span>
+                      {Number(comanda?.discount || 0) > 0 && (
+                        <span className="text-green-600">- Desconto cashback: {formatCurrency(Number(comanda?.discount || 0))}</span>
+                      )}
+                      {totalJaRecebido > 0 && (
+                        <span className="text-green-600">- Pago online: {formatCurrency(totalJaRecebido)}</span>
+                      )}
                     </div>
                     <Label className="text-xs text-muted-foreground">Total a Cobrar:</Label>
-                    <p className="text-3xl font-bold text-destructive">{formatCurrency(Math.max(0, subtotal - Number(comanda?.discount || 0)))}</p>
+                    <p className="text-3xl font-bold text-destructive">{formatCurrency(totalACobrarLiquido)}</p>
                   </>
                 ) : (
                   <>
