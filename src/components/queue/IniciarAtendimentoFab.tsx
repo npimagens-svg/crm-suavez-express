@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Loader2, UserPlus, CalendarDays } from "lucide-react";
+import { Play, Loader2, UserPlus, CalendarDays, Plus } from "lucide-react";
 
 export function IniciarAtendimentoFab() {
   const navigate = useNavigate();
@@ -181,17 +181,17 @@ export function IniciarAtendimentoFab() {
       {/* FAB */}
       <Button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 h-14 rounded-full shadow-lg gap-2 px-5 text-base"
+        className="fixed bottom-6 left-6 z-50 h-14 rounded-full shadow-lg gap-2 px-6 text-base font-semibold"
         size="lg"
       >
-        <Play className="h-5 w-5" />
-        <span className="hidden sm:inline">Iniciar Atendimento</span>
+        <Plus className="h-6 w-6" />
+        Abrir Comanda
       </Button>
 
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Iniciar Atendimento</DialogTitle>
+            <DialogTitle>Abrir Comanda</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -262,8 +262,8 @@ export function IniciarAtendimentoFab() {
             </div>
 
             <Button className="w-full h-12 gap-2" onClick={handleStart} disabled={loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Iniciar Atendimento
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-5 w-5" />}
+              Abrir Comanda
             </Button>
           </div>
         </DialogContent>
