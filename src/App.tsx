@@ -16,6 +16,7 @@ import Pacotes from "./pages/Pacotes";
 import AuthNew from "./pages/AuthNew";
 import { Profissionais } from "./pages/Profissionais";
 import Comandas from "./pages/Comandas";
+import AtendimentoTerminal from "./pages/AtendimentoTerminal";
 import Financeiro from "./pages/Financeiro";
 import Comissoes from "./pages/Comissoes";
 import Estoque from "./pages/Estoque";
@@ -119,6 +120,7 @@ function AppRoutes() {
         <Route path="/profissionais" element={<ProtectedRoute><Profissionais /></ProtectedRoute>} />
         <Route path="/comandas" element={<ProtectedRoute><Comandas /></ProtectedRoute>} />
         <Route path="/comandas/*" element={<ProtectedRoute><Comandas /></ProtectedRoute>} />
+        <Route path="/atendimento" element={<ProtectedRoute><AtendimentoTerminal /></ProtectedRoute>} />
         <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
         <Route path="/financeiro/*" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
         <Route path="/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
@@ -186,6 +188,7 @@ function AppRoutes() {
       <Route path="/profissionais" element={<ProtectedRoute><Profissionais /></ProtectedRoute>} />
       <Route path="/comandas" element={<ProtectedRoute><Comandas /></ProtectedRoute>} />
       <Route path="/comandas/*" element={<ProtectedRoute><Comandas /></ProtectedRoute>} />
+      <Route path="/atendimento" element={<ProtectedRoute><AtendimentoTerminal /></ProtectedRoute>} />
       <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
       <Route path="/financeiro/*" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
       <Route path="/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
