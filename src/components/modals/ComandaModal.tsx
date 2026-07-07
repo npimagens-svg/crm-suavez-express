@@ -1444,27 +1444,31 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] lg:max-w-6xl max-h-[95vh] overflow-hidden flex flex-col p-0">
-        {/* Avec-style Header */}
-        <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
-          <div className="flex items-center gap-4">
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="bg-transparent h-auto p-0 gap-6">
-                <TabsTrigger value="itens" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Itens</TabsTrigger>
-                <TabsTrigger value="pagamento" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Pagamento</TabsTrigger>
-                <TabsTrigger value="prontuario" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Prontuário</TabsTrigger>
-                <TabsTrigger value="informacoes" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Informações</TabsTrigger>
+      <DialogContent className="max-sm:w-screen max-sm:h-[100dvh] max-sm:max-w-none max-sm:max-h-none max-sm:rounded-none max-w-[95vw] lg:max-w-6xl max-h-[95vh] overflow-hidden flex flex-col p-0">
+        {/* Header responsivo (mobile: título em cima c/ espaço pro X, abas roláveis embaixo) */}
+        <div className="px-4 md:px-6 py-3 border-b bg-background">
+          {/* Título — no mobile fica em cima, com padding pra não bater no X de fechar */}
+          <div className="md:hidden pr-10 mb-2">
+            <span className="text-base font-bold text-primary truncate block">
+              Comanda {getComandaNumber()} · {comanda.client?.name || "Cliente"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4 min-w-0">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
+              <TabsList className="bg-transparent h-auto p-0 gap-4 md:gap-6 overflow-x-auto max-w-full">
+                <TabsTrigger value="itens" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">Itens</TabsTrigger>
+                <TabsTrigger value="pagamento" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">Pagamento</TabsTrigger>
+                <TabsTrigger value="prontuario" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">Prontuário</TabsTrigger>
+                <TabsTrigger value="informacoes" className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 pb-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">Informações</TabsTrigger>
               </TabsList>
             </Tabs>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold text-primary">
+            <span className="hidden md:inline text-lg font-bold text-primary whitespace-nowrap pr-8">
               Comanda {getComandaNumber()} - {comanda.client?.name || "Cliente"}
             </span>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsContent value="itens" className="space-y-4 mt-4">
               {/* Locked Comanda Warning */}
@@ -2370,10 +2374,10 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
         </div>
 
         {/* Avec-style Footer */}
-        <div className="flex items-center justify-between border-t px-6 py-3 flex-shrink-0 bg-background">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 md:px-6 py-3 flex-shrink-0 bg-background">
           <Button
             variant="outline"
-            className="gap-2 text-sm"
+            className="gap-2 text-sm max-sm:flex-1"
             onClick={handleSyncComanda}
             disabled={isUpdating}
           >
