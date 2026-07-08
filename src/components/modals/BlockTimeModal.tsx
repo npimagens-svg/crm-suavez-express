@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Professional } from "@/hooks/useProfessionals";
 import { Ban } from "lucide-react";
 
@@ -56,6 +57,7 @@ export function BlockTimeModal({
     duration_minutes: 30,
     reason: "",
   });
+  const [allDay, setAllDay] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -67,17 +69,23 @@ export function BlockTimeModal({
         duration_minutes: 30,
         reason: "",
       });
+      setAllDay(false);
     }
   }, [open, defaultDate, defaultProfessionalId, defaultTime]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.reason.trim()) {
       return;
     }
-    
-    onSubmit(formData);
+
+    // Dia inteiro: bloqueia das 00:00 às 24:00 (1440 min) — cobre o dia todo do profissional.
+    const payload = allDay
+      ? { ...formData, time: "00:00", duration_minutes: 1440 }
+      : formData;
+
+    onSubmit(payload);
     onOpenChange(false);
   };
 
@@ -112,7 +120,13 @@ export function BlockTimeModal({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Dia inteiro */}
+          <label className="flex items-center gap-3 cursor-pointer rounded-md border p-3">
+            <Checkbox checked={allDay} onCheckedChange={(c) => setAllDay(!!c)} />
+            <span className="text-sm font-medium">Bloquear o dia inteiro</span>
+          </label>
+
+          <div className={allDay ? "" : "grid grid-cols-2 gap-4"}>
             <div className="space-y-2">
               <Label htmlFor="block-date">Data *</Label>
               <Input
@@ -123,38 +137,41 @@ export function BlockTimeModal({
                 required
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="block-time">Horário *</Label>
-              <Input
-                id="block-time"
-                type="time"
-                value={formData.time}
-                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                required
-              />
-            </div>
+            {!allDay && (
+              <div className="space-y-2">
+                <Label htmlFor="block-time">Horário *</Label>
+                <Input
+                  id="block-time"
+                  type="time"
+                  value={formData.time}
+                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                  required
+                />
+              </div>
+            )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="block-duration">Duração (min)</Label>
-            <Select 
-              value={formData.duration_minutes.toString()} 
-              onValueChange={(v) => setFormData({ ...formData, duration_minutes: parseInt(v) })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30">30 minutos</SelectItem>
-                <SelectItem value="60">1 hora</SelectItem>
-                <SelectItem value="90">1h30</SelectItem>
-                <SelectItem value="120">2 horas</SelectItem>
-                <SelectItem value="180">3 horas</SelectItem>
-                <SelectItem value="240">4 horas</SelectItem>
-                <SelectItem value="480">8 horas (dia inteiro)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {!allDay && (
+            <div className="space-y-2">
+              <Label htmlFor="block-duration">Duração (min)</Label>
+              <Select
+                value={formData.duration_minutes.toString()}
+                onValueChange={(v) => setFormData({ ...formData, duration_minutes: parseInt(v) })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">30 minutos</SelectItem>
+                  <SelectItem value="60">1 hora</SelectItem>
+                  <SelectItem value="90">1h30</SelectItem>
+                  <SelectItem value="120">2 horas</SelectItem>
+                  <SelectItem value="180">3 horas</SelectItem>
+                  <SelectItem value="240">4 horas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="block-reason">Motivo do bloqueio *</Label>

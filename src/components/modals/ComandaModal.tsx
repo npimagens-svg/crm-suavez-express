@@ -1283,6 +1283,18 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
         throw new Error(`Erro ao fechar comanda: ${closeError.message}`);
       }
 
+      // Dá baixa na FILA ao fechar a comanda (Cleiton 08/07): a pessoa terminou,
+      // então some da fila. Enquanto a comanda fica ABERTA, a entrada permanece
+      // na fila (é isso que faz as comandas abertas aparecerem pra quem consulta).
+      if (comanda.client_id && salonId) {
+        await supabase
+          .from("queue_entries")
+          .update({ status: "completed", updated_at: new Date().toISOString() })
+          .eq("salon_id", salonId)
+          .eq("customer_id", comanda.client_id)
+          .in("status", ["waiting", "checked_in", "in_service"]);
+      }
+
       // Update linked appointments to "paid" status
       if (comanda.appointment_id) {
         await supabase
