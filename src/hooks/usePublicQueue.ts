@@ -146,6 +146,7 @@ export function usePublicQueue() {
     customer_phone: string;
     customer_email?: string;
     service_id: string;
+    service_ids?: string[];
     notify_minutes_before?: number;
     payment_id?: string;
   }) => {
@@ -178,6 +179,7 @@ export function usePublicQueue() {
         customer_phone: input.customer_phone,
         customer_email: input.customer_email || null,
         service_id: input.service_id,
+        service_ids: (input.service_ids && input.service_ids.length > 0) ? input.service_ids : [input.service_id],
         source: "online",
         position,
         notify_minutes_before: input.notify_minutes_before || 40,

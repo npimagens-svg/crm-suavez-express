@@ -22,7 +22,7 @@ export default function FilaComprar() {
   const { toast } = useToast();
 
   const [step, setStep] = useState<Step>("service");
-  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerCpf, setCustomerCpf] = useState("");
@@ -31,13 +31,16 @@ export default function FilaComprar() {
   const [queueEntryId, setQueueEntryId] = useState("");
   const [queuePosition, setQueuePosition] = useState(0);
 
-  const selectedService = services.find((s: any) => s.id === selectedServiceId);
+  const selectedServices = services.filter((s: any) => selectedServiceIds.includes(s.id));
+  const totalPrice = selectedServices.reduce((sum: number, s: any) => sum + Number(s.price || 0), 0);
+  const combinedName = selectedServices.map((s: any) => s.name).join(" + ");
   const notifyOptions = settings?.notify_options || [20, 40, 60, 90];
   const effectiveSalonId = salonId || "";
 
-  const handleServiceSelect = (serviceId: string) => {
-    setSelectedServiceId(serviceId);
-    setStep("data");
+  const toggleService = (serviceId: string) => {
+    setSelectedServiceIds((prev) =>
+      prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId]
+    );
   };
 
   const handleDataSubmit = async () => {
@@ -73,7 +76,8 @@ export default function FilaComprar() {
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
         customer_email: customerEmail.trim() || undefined,
-        service_id: selectedServiceId,
+        service_id: selectedServiceIds[0],
+        service_ids: selectedServiceIds,
         notify_minutes_before: parseInt(notifyMinutes),
         payment_id: paymentId,
       });
@@ -101,7 +105,7 @@ export default function FilaComprar() {
 
       await notifyReception(effectiveSalonId,
         "Nova cliente na fila!",
-        `${customerName} comprou ${selectedService?.name} e entrou na fila (posição ${entry.position}).`
+        `${customerName} comprou ${combinedName} e entrou na fila (posição ${entry.position}).`
       );
 
       setStep("confirmation");
@@ -132,28 +136,46 @@ export default function FilaComprar() {
         </div>
 
         {step === "service" && (
-          <div className="space-y-3">
+          <div className="space-y-3 pb-24">
+            <p className="text-sm text-zinc-400">Toque para escolher um ou mais serviços.</p>
             {services.length === 0 && (
               <p className="text-center text-zinc-400 py-8">Nenhum serviço disponível no momento.</p>
             )}
-            {services.map((service: any) => (
-              <Card key={service.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleServiceSelect(service.id)}>
-                <CardContent className="flex justify-between items-center py-4">
-                  <div>
-                    <p className="font-medium">{service.name}</p>
-                    <p className="text-sm text-muted-foreground">{service.duration_minutes} min</p>
-                  </div>
-                  <p className="font-semibold text-primary">{fmt(service.price)}</p>
-                </CardContent>
-              </Card>
-            ))}
+            {services.map((service: any) => {
+              const isSelected = selectedServiceIds.includes(service.id);
+              return (
+                <Card key={service.id} className={`cursor-pointer transition-colors ${isSelected ? "border-primary ring-1 ring-primary" : "hover:border-primary"}`} onClick={() => toggleService(service.id)}>
+                  <CardContent className="flex justify-between items-center py-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`h-5 w-5 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? "bg-primary border-primary" : "border-zinc-400"}`}>
+                        {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
+                      </div>
+                      <div>
+                        <p className="font-medium">{service.name}</p>
+                        <p className="text-sm text-muted-foreground">{service.duration_minutes} min</p>
+                      </div>
+                    </div>
+                    <p className="font-semibold text-primary">{fmt(service.price)}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+            {selectedServiceIds.length > 0 && (
+              <div className="fixed bottom-0 left-0 right-0 p-4 bg-zinc-900/95 border-t border-zinc-700">
+                <div className="max-w-sm mx-auto">
+                  <Button className="w-full" onClick={() => setStep("data")}>
+                    Continuar · {selectedServiceIds.length} {selectedServiceIds.length === 1 ? "serviço" : "serviços"} · {fmt(totalPrice)}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {step === "data" && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{selectedService?.name} — {fmt(selectedService?.price || 0)}</CardTitle>
+              <CardTitle className="text-base">{combinedName} — {fmt(totalPrice)}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div><Label>Nome</Label><Input placeholder="Seu nome completo" value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></div>
@@ -180,15 +202,15 @@ export default function FilaComprar() {
           </Card>
         )}
 
-        {step === "payment" && selectedService && (
+        {step === "payment" && selectedServices.length > 0 && (
           <AsaasCheckout
             salonId={effectiveSalonId}
             customerName={customerName}
             customerCpf={customerCpf}
             customerPhone={customerPhone}
             customerEmail={customerEmail || undefined}
-            serviceName={selectedService.name}
-            servicePrice={selectedService.price}
+            serviceName={combinedName}
+            servicePrice={totalPrice}
             queueEntryId={queueEntryId || `pending_${Date.now()}`}
             onPaymentConfirmed={handlePaymentConfirmed}
             onError={(err) => toast({ title: err, variant: "destructive" })}

@@ -10,6 +10,7 @@ export interface QueueEntry {
   customer_phone: string;
   customer_email: string | null;
   service_id: string;
+  service_ids: string[] | null;
   status: QueueStatus;
   source: QueueSource;
   position: number;
@@ -33,6 +34,7 @@ export interface QueueEntryInput {
   customer_phone: string;
   customer_email?: string;
   service_id: string;
+  service_ids?: string[];
   source: QueueSource;
   notify_minutes_before?: number;
   payment_id?: string;

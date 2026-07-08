@@ -123,22 +123,26 @@ export default function Fila() {
     });
     if (!comanda?.id) return { comandaId: null, clientId };
 
-    if (entry.service) {
-      await supabase.from("comanda_items").insert({
+    const svcIds = (entry.service_ids && entry.service_ids.length > 0)
+      ? entry.service_ids
+      : (entry.service_id ? [entry.service_id] : []);
+    if (svcIds.length > 0) {
+      const { data: svcs } = await supabase.from("services").select("id, name, price").in("id", svcIds);
+      const items = (svcs || []).map((s: any) => ({
         comanda_id: comanda.id,
-        service_id: entry.service_id,
+        service_id: s.id,
         professional_id: entry.assigned_professional_id || null,
-        description: entry.service.name,
+        description: s.name,
         item_type: "service",
         quantity: 1,
-        unit_price: entry.service.price,
-        total_price: entry.service.price,
-      });
-
-      await supabase
-        .from("comandas")
-        .update({ subtotal: entry.service.price, total: entry.service.price })
-        .eq("id", comanda.id);
+        unit_price: s.price,
+        total_price: s.price,
+      }));
+      if (items.length > 0) {
+        await supabase.from("comanda_items").insert(items);
+        const total = items.reduce((sum, it) => sum + Number(it.total_price || 0), 0);
+        await supabase.from("comandas").update({ subtotal: total, total }).eq("id", comanda.id);
+      }
     }
 
     return { comandaId: comanda.id, clientId };
@@ -198,31 +202,38 @@ export default function Fila() {
         // 4. Pagamento online (Asaas) já confirmado → registra o pagamento,
         // mas a comanda FICA ABERTA até a saída: dá pra lançar serviços extras
         // e o valor já pago via Asaas aparece abatido no fechamento da comanda.
-        if (selectedEntry.source === "online" && selectedEntry.payment_status === "confirmed" && selectedEntry.service) {
+        if (selectedEntry.source === "online" && selectedEntry.payment_status === "confirmed") {
+          const svcIds = (selectedEntry.service_ids && selectedEntry.service_ids.length > 0)
+            ? selectedEntry.service_ids
+            : (selectedEntry.service_id ? [selectedEntry.service_id] : []);
+          const { data: svcs } = await supabase.from("services").select("id, name, price, duration_minutes").in("id", svcIds);
+          const total = (svcs || []).reduce((sum: number, s: any) => sum + Number(s.price || 0), 0);
           const payMethod = selectedEntry.payment_method === "credit_card" ? "credit_card" : "pix";
           await supabase.from("payments").insert({
             comanda_id: comandaId,
             salon_id: salonId,
             payment_method: payMethod,
             payment_provider: "asaas", // pagamento online via fila → sempre Asaas
-            amount: selectedEntry.service.price,
+            amount: total,
             fee_amount: 0,
-            net_amount: selectedEntry.service.price,
+            net_amount: total,
             notes: `Pagamento online via Asaas - fila ${selectedEntry.id}`,
           });
 
-          // Agenda for visual tracking
-          await supabase.from("appointments").insert({
-            salon_id: salonId,
-            client_id: clientId,
-            professional_id: professionalId,
-            service_id: selectedEntry.service_id,
-            scheduled_at: new Date().toISOString(),
-            duration_minutes: selectedEntry.service.duration_minutes || 45,
-            status: "in_progress",
-            notes: `Fila online - Pagamento online`,
-            price: selectedEntry.service.price,
-          });
+          // Agenda for visual tracking (um por serviço)
+          if ((svcs || []).length > 0) {
+            await supabase.from("appointments").insert((svcs || []).map((s: any) => ({
+              salon_id: salonId,
+              client_id: clientId,
+              professional_id: professionalId,
+              service_id: s.id,
+              scheduled_at: new Date().toISOString(),
+              duration_minutes: s.duration_minutes || 45,
+              status: "in_progress",
+              notes: `Fila online - Pagamento online`,
+              price: s.price,
+            })));
+          }
 
           // Caixa totals
           const openCaixa = await getCurrentUserOpenCaixa();
@@ -230,7 +241,7 @@ export default function Fila() {
             await updateCaixaTotalsAsync({
               caixaId: openCaixa.id,
               paymentMethod: payMethod,
-              amount: selectedEntry.service.price,
+              amount: total,
             });
           }
         }
