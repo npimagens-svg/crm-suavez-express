@@ -514,12 +514,9 @@ export default function Comandas() {
           </div>
         )}
 
-        {/* Action Buttons */}
+        {/* Action Buttons — botão "Abrir Comanda" laranja removido (Cleiton 08/07):
+            usar a faixa verde global "Abrir Comanda" no topo. Evita botão duplicado. */}
         <div className="flex items-center gap-2">
-          <Button className="gap-2" onClick={() => setModalOpen(true)} disabled={!userOpenCaixaId}>
-            <Plus className="h-4 w-4" />
-            Abrir Comanda
-          </Button>
           {!userOpenCaixaId && (
             <Badge variant="destructive" className="gap-1 px-3 py-1.5">
               <AlertTriangle className="h-3 w-3" />
