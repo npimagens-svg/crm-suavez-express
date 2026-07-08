@@ -607,9 +607,25 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
     const professionalId = comanda.professional_id;
     if (professionalId) {
       try {
+        // Anti-duplicação (Cleiton 08/07): se JÁ existe appointment desse serviço nesta comanda,
+        // não cria outro (era isso que triplicava o atendimento ao mexer/fechar a comanda).
+        const { data: jaExiste } = await supabase
+          .from("appointments")
+          .select("id")
+          .eq("salon_id", salonId)
+          .eq("client_id", comanda.client_id)
+          .eq("service_id", serviceId)
+          .ilike("notes", `%comanda ${comandaRef}%`)
+          .neq("status", "cancelled")
+          .limit(1)
+          .maybeSingle();
+        if (jaExiste) {
+          queryClient.invalidateQueries({ queryKey: ["appointments", salonId] });
+          return;
+        }
         // Schedule for current time today
         const now = new Date();
-        
+
         const { error } = await supabase
           .from("appointments")
           .insert({

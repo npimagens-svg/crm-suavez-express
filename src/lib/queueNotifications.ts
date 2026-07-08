@@ -86,7 +86,8 @@ export async function notifyQueueEntry(
   const msg = messages[type];
   if (!msg) return;
 
-  const sendEmailForTypes = ["entered", "next", "credit"];
+  // E-mails automáticos de fila DESATIVADOS (salão é walk-in; Cleiton pediu desligar).
+  const sendEmailForTypes: string[] = [];
 
   await notifyClient({
     phone: entry.customer_phone,

@@ -13,6 +13,11 @@ interface SendEmailParams {
 }
 
 export async function sendEmail(params: SendEmailParams) {
+  // E-mails automáticos de AGENDAMENTO desativados (salão é walk-in — Cleiton 08/07).
+  // Cobre confirmação/lembrete/alteração/cancelamento de agendamento num ponto só.
+  if (params.type.startsWith("appointment_")) {
+    return { skipped: true, reason: "appointment emails disabled" };
+  }
   const { data, error } = await supabase.functions.invoke("send-email", {
     body: params,
   });

@@ -53,6 +53,10 @@ export default function Fila() {
     entry: QueueEntry
   ): Promise<{ comandaId: string | null; clientId: string | null }> => {
     if (!salonId) return { comandaId: null, clientId: null };
+    // Regra Cleiton 08/07: só abre comanda automática pra quem veio da FILA DIGITAL (online/pago).
+    // Walk-in/presencial NÃO abre comanda sozinho — a recepção usa o botão "Abrir Comanda".
+    // (Também evita a comanda/atendimento duplicado do fluxo presencial.)
+    if (entry.source !== "online") return { comandaId: null, clientId: null };
 
     // 0. Get or auto-open caixa
     let openCaixa = await getCurrentUserOpenCaixa();
@@ -263,7 +267,8 @@ export default function Fila() {
       markNotified(lead.id);
       toast({ title: "WhatsApp enviado!" });
     } else {
-      toast({ title: "Falha ao enviar WhatsApp. Verifique Z-API.", variant: "destructive" });
+      // Z-API não configurada neste salão → não assusta a recepção com erro vermelho.
+      toast({ title: "Notificação por WhatsApp não está ativa aqui." });
     }
   };
 
