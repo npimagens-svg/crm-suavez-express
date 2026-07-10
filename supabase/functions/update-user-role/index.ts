@@ -55,10 +55,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validate role
-    const validRoles = ["manager", "receptionist", "financial", "professional"];
+    // Validate role. 'admin' É permitido: qualquer usuário pode ser promovido
+    // a Administrador. A trava está abaixo — só um admin do salão executa isto
+    // e ninguém altera o próprio papel.
+    const validRoles = ["admin", "manager", "receptionist", "financial", "professional"];
     if (!validRoles.includes(newRole)) {
-      return new Response(JSON.stringify({ error: "Invalid role. Cannot assign admin role." }), {
+      return new Response(JSON.stringify({ error: "Invalid role" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

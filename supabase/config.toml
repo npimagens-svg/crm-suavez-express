@@ -1,4 +1,28 @@
-project_id = "fzxpyslpykvqifmirezn"
+# ⚠️ project_id CORRIGIDO (falha 21): antes apontava para "fzxpyslpykvqifmirezn"
+# (NP Hair STUDIO — banco de OUTRO cliente). O banco do Sua Vez Express é
+# "ewxiaxsmohxuabcmxuyc". Mesmo assim, TODO comando supabase deve passar
+# --project-ref explícito para nunca depender deste arquivo:
+#   npx supabase db push --project-ref ewxiaxsmohxuabcmxuyc
+#   npx supabase functions deploy <fn> --project-ref ewxiaxsmohxuabcmxuyc
+project_id = "ewxiaxsmohxuabcmxuyc"
+
+# As functions abaixo têm verify_jwt=false porque fazem a PRÓPRIA autenticação
+# (webhook token / cron secret / JWT de staff em _shared/auth.ts). Não é
+# ausência de auth — é auth feita dentro da função (falha 5).
+[functions.asaas-checkout]
+verify_jwt = false
+
+[functions.asaas-webhook]
+verify_jwt = false
+
+[functions.zapi-proxy]
+verify_jwt = false
+
+[functions.asaas-proxy]
+verify_jwt = false
+
+[functions.clube-otp]
+verify_jwt = false
 
 [functions.create-professional-access]
 verify_jwt = false

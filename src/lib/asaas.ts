@@ -1,138 +1,69 @@
 import { supabase } from "@/lib/dynamicSupabaseClient";
 
-export interface AsaasPaymentInput {
-  customerName: string;
-  customerCpfCnpj: string;
-  customerPhone: string;
-  customerEmail?: string;
-  value: number;
+// Fluxo NOVO de checkout (falhas 3/10/11/12 corrigidas):
+// - O browser manda apenas serviços escolhidos + dados de contato.
+// - Preço, salão e snapshot ficam SERVER-SIDE (purchase_intents, via
+//   Edge Function asaas-checkout).
+// - Cartão: checkout HOSPEDADO do Asaas (invoice_url) — número/CVV nunca
+//   passam pelo nosso código.
+// - A entrada na fila é criada pelo asaas-webhook; o browser só consulta o
+//   status da intenção (RPC fila_intent_status) e recebe o token opaco.
+
+export interface CheckoutInput {
+  serviceIds: string[];
+  name: string;
+  cpfCnpj: string;
+  phone: string;
+  email?: string;
+  billing: "pix" | "card";
+  notifyMinutesBefore?: number;
+  idempotencyKey?: string;
+}
+
+export interface PixQrCode {
+  encodedImage: string;
+  payload: string;
+  expirationDate: string;
+}
+
+export interface CheckoutResponse {
+  intent_id: string;
+  total: number;
   description: string;
-  externalReference: string;
+  billing: "pix" | "card";
+  invoice_url: string | null;
+  pix_qr_code: PixQrCode | null;
+  reused?: boolean;
 }
 
-export interface AsaasPaymentResponse {
-  id: string;
-  status: string;
-  invoiceUrl: string;
-  pixQrCode?: {
-    encodedImage: string;
-    payload: string;
-    expirationDate: string;
-  };
-}
-
-async function callAsaasProxy(salonId: string, action: string, data: Record<string, unknown>) {
-  try {
-    const { data: result, error } = await supabase.functions.invoke("asaas-proxy", {
-      body: { action, salonId, data },
-    });
-
-    if (error) {
-      // Try to parse error body for detailed message
-      if (typeof error === "object" && error.message) {
-        throw new Error(error.message);
-      }
-      throw new Error("Erro na comunicação com o servidor");
-    }
-    if (result?.error) throw new Error(result.error);
-    return result;
-  } catch (err) {
-    if (err instanceof Error) throw err;
-    throw new Error("Erro inesperado ao processar pagamento");
+export async function createCheckout(input: CheckoutInput): Promise<CheckoutResponse> {
+  const { data, error } = await supabase.functions.invoke("asaas-checkout", {
+    body: {
+      service_ids: input.serviceIds,
+      name: input.name,
+      cpf_cnpj: input.cpfCnpj,
+      phone: input.phone,
+      email: input.email || null,
+      billing: input.billing,
+      notify_minutes_before: input.notifyMinutesBefore ?? 40,
+      idempotency_key: input.idempotencyKey ?? null,
+    },
+  });
+  if (error) {
+    throw new Error(error.message || "Erro na comunicação com o servidor");
   }
+  if (data?.error) throw new Error(data.error);
+  return data as CheckoutResponse;
 }
 
-export async function createAsaasPayment(
-  salonId: string,
-  input: AsaasPaymentInput
-): Promise<AsaasPaymentResponse> {
-  // Step 1: Create customer
-  const customer = await callAsaasProxy(salonId, "createCustomer", {
-    name: input.customerName,
-    cpfCnpj: input.customerCpfCnpj,
-    phone: input.customerPhone,
-    email: input.customerEmail,
-  });
-
-  const customerId = customer.id;
-  if (!customerId) throw new Error("Falha ao criar cliente no Asaas");
-
-  // Step 2: Create PIX payment
-  const payment = await callAsaasProxy(salonId, "createPayment", {
-    customerId,
-    value: input.value,
-    description: input.description,
-    externalReference: input.externalReference,
-  });
-
-  // Step 3: Get PIX QR code
-  const pixData = await callAsaasProxy(salonId, "getPixQrCode", {
-    paymentId: payment.id,
-  });
-
-  return {
-    id: payment.id,
-    status: payment.status,
-    invoiceUrl: payment.invoiceUrl,
-    pixQrCode: pixData.success !== false ? pixData : undefined,
-  };
+export interface IntentStatus {
+  found: boolean;
+  status?: "pending" | "paid" | "queued" | "cancelled" | "refunded" | "chargeback";
+  tracking_token?: string | null;
 }
 
-export interface CardPaymentInput {
-  customerName: string;
-  customerCpfCnpj: string;
-  customerPhone: string;
-  customerEmail?: string;
-  value: number;
-  description: string;
-  externalReference: string;
-  cardHolderName: string;
-  cardNumber: string;
-  cardExpiryMonth: string;
-  cardExpiryYear: string;
-  cardCcv: string;
-  holderPostalCode: string;
-  holderAddressNumber: string;
-}
-
-export async function createAsaasCardPayment(
-  salonId: string,
-  input: CardPaymentInput
-): Promise<{ id: string; status: string }> {
-  // Step 1: Create customer
-  const customer = await callAsaasProxy(salonId, "createCustomer", {
-    name: input.customerName,
-    cpfCnpj: input.customerCpfCnpj,
-    phone: input.customerPhone,
-    email: input.customerEmail,
-  });
-
-  const customerId = customer.id;
-  if (!customerId) throw new Error("Falha ao criar cliente no Asaas");
-
-  // Step 2: Create card payment
-  const payment = await callAsaasProxy(salonId, "createCardPayment", {
-    customerId,
-    value: input.value,
-    description: input.description,
-    externalReference: input.externalReference,
-    cardHolderName: input.cardHolderName,
-    cardNumber: input.cardNumber.replace(/\D/g, ""),
-    cardExpiryMonth: input.cardExpiryMonth,
-    cardExpiryYear: input.cardExpiryYear,
-    cardCcv: input.cardCcv,
-    holderName: input.customerName,
-    holderCpf: input.customerCpfCnpj,
-    holderPhone: input.customerPhone,
-    holderEmail: input.customerEmail,
-    holderPostalCode: input.holderPostalCode.replace(/\D/g, ""),
-    holderAddressNumber: input.holderAddressNumber,
-  });
-
-  return { id: payment.id, status: payment.status };
-}
-
-export async function getAsaasPaymentStatus(salonId: string, paymentId: string): Promise<string> {
-  const result = await callAsaasProxy(salonId, "getPaymentStatus", { paymentId });
-  return result.status;
+export async function getIntentStatus(intentId: string): Promise<IntentStatus> {
+  const { data, error } = await supabase.rpc("fila_intent_status", { p_intent: intentId });
+  if (error) throw new Error(error.message);
+  return (data ?? { found: false }) as IntentStatus;
 }

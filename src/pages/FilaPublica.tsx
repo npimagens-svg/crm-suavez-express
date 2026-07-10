@@ -10,14 +10,16 @@ import { Users, Clock, Bell, Crown } from "lucide-react";
 import { usePublicQueue } from "@/hooks/usePublicQueue";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/dynamicSupabaseClient";
-import { notifyQueueEntry, notifyReception } from "@/lib/queueNotifications";
 
-const SITE_URL = window.location.origin;
+// Clube da Escova: agora exige OTP (prova de posse do telefone — falha 13).
+// 1) manda o código pro WhatsApp (Edge Function clube-otp);
+// 2) valida na RPC clube_entrar_fila(celular, otp), que debita o crédito
+//    de forma atômica e devolve o TOKEN opaco de acompanhamento.
 
 type ClubeResposta = {
   ok: boolean;
   erro?: string;
-  entry_id?: string;
+  tracking_token?: string;
   position?: number;
   nome?: string;
   usadas?: number;
@@ -26,7 +28,7 @@ type ClubeResposta = {
 
 export default function FilaPublica() {
   const navigate = useNavigate();
-  const { salonId, stats, settings, addLead } = usePublicQueue();
+  const { stats, settings, addLead } = usePublicQueue();
   const { toast } = useToast();
 
   const [leadModalOpen, setLeadModalOpen] = useState(false);
@@ -36,45 +38,76 @@ export default function FilaPublica() {
 
   const [clubeModalOpen, setClubeModalOpen] = useState(false);
   const [clubePhone, setClubePhone] = useState("");
+  const [clubeOtp, setClubeOtp] = useState("");
+  const [clubeStep, setClubeStep] = useState<"phone" | "otp">("phone");
   const [clubeLoading, setClubeLoading] = useState(false);
 
-  const handleClubeSubmit = async () => {
+  const resetClube = () => {
+    setClubeStep("phone");
+    setClubeOtp("");
+    setClubeLoading(false);
+  };
+
+  const handleClubeSendOtp = async () => {
     if (clubePhone.replace(/\D/g, "").length < 10) {
       toast({ title: "Digite seu WhatsApp com DDD", variant: "destructive" });
       return;
     }
     setClubeLoading(true);
     try {
-      const { data, error } = await supabase.rpc("clube_entrar_fila", { p_celular: clubePhone });
+      const { data, error } = await supabase.functions.invoke("clube-otp", {
+        body: { celular: clubePhone },
+      });
+      if (error) throw error;
+      if (data?.erro === "muitas_tentativas") {
+        toast({ title: "Muitos códigos pedidos", description: "Aguarde alguns minutos e tente de novo.", variant: "destructive" });
+        return;
+      }
+      if (data?.erro === "otp_indisponivel" || data?.erro === "envio_falhou") {
+        toast({ title: "Envio do código indisponível", description: "Fale com a recepção para entrar na fila do Clube.", variant: "destructive" });
+        return;
+      }
+      setClubeStep("otp");
+      toast({ title: "Código enviado!", description: "Confira seu WhatsApp e digite o código de 6 dígitos." });
+    } catch {
+      toast({ title: "Erro ao enviar o código. Tente de novo.", variant: "destructive" });
+    } finally {
+      setClubeLoading(false);
+    }
+  };
+
+  const handleClubeSubmit = async () => {
+    if (clubeOtp.replace(/\D/g, "").length !== 6) {
+      toast({ title: "Digite o código de 6 dígitos", variant: "destructive" });
+      return;
+    }
+    setClubeLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("clube_entrar_fila", {
+        p_celular: clubePhone,
+        p_otp: clubeOtp.replace(/\D/g, ""),
+      });
       if (error) throw error;
       const resp = data as ClubeResposta;
 
-      if (resp.ok && resp.entry_id) {
+      if (resp.ok && resp.tracking_token) {
         setClubeModalOpen(false);
+        resetClube();
         toast({
           title: `Bem-vinda, ${(resp.nome || "").split(" ")[0] || "assinante"}!`,
           description: `Você entrou na fila (${resp.position}ª posição). Escova ${resp.usadas} de ${resp.total} do mês.`,
         });
-        if (salonId) {
-          const trackingUrl = `${SITE_URL}/fila/acompanhar/${resp.entry_id}`;
-          notifyQueueEntry(salonId, {
-            customer_phone: clubePhone,
-            customer_email: null,
-            customer_name: resp.nome || "Assinante Clube",
-          }, "entered", { position: resp.position, trackingUrl }).catch(() => {});
-          notifyReception(salonId,
-            "Assinante do Clube na fila!",
-            `${resp.nome || "Assinante"} entrou pela fila do Clube da Escova (posição ${resp.position}, escova ${resp.usadas}/${resp.total} do mês).`
-          ).catch(() => {});
-        }
-        navigate(`/fila/acompanhar/${resp.entry_id}`);
+        try {
+          localStorage.setItem("fila_tracking_token", resp.tracking_token);
+        } catch { /* sem storage, segue o fluxo */ }
+        navigate(`/fila/acompanhar/${resp.tracking_token}`);
         return;
       }
 
-      if (resp.erro === "ja_na_fila" && resp.entry_id) {
+      if (resp.erro === "ja_na_fila") {
         setClubeModalOpen(false);
+        resetClube();
         toast({ title: "Você já está na fila!", description: `Sua posição: ${resp.position}ª.` });
-        navigate(`/fila/acompanhar/${resp.entry_id}`);
         return;
       }
       if (resp.erro === "teto_atingido") {
@@ -93,7 +126,17 @@ export default function FilaPublica() {
         });
         return;
       }
-      toast({ title: "Número inválido. Digite com DDD.", variant: "destructive" });
+      if (resp.erro === "otp_incorreto") {
+        toast({ title: "Código incorreto", description: "Confira o código no seu WhatsApp.", variant: "destructive" });
+        return;
+      }
+      if (resp.erro === "otp_expirado" || resp.erro === "otp_bloqueado") {
+        setClubeStep("phone");
+        setClubeOtp("");
+        toast({ title: "Código expirado", description: "Peça um novo código.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Não foi possível entrar na fila. Tente de novo.", variant: "destructive" });
     } catch {
       toast({ title: "Erro ao entrar na fila. Tente de novo.", variant: "destructive" });
     } finally {
@@ -156,7 +199,7 @@ export default function FilaPublica() {
         <Button
           variant="outline"
           className="w-full h-12 border-amber-500/60 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
-          onClick={() => setClubeModalOpen(true)}
+          onClick={() => { resetClube(); setClubeModalOpen(true); }}
         >
           <Crown className="h-4 w-4 mr-2" />
           Sou do Clube da Escova
@@ -167,7 +210,7 @@ export default function FilaPublica() {
         </Button>
       </div>
 
-      <Dialog open={clubeModalOpen} onOpenChange={setClubeModalOpen}>
+      <Dialog open={clubeModalOpen} onOpenChange={(open) => { setClubeModalOpen(open); if (!open) resetClube(); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -175,28 +218,62 @@ export default function FilaPublica() {
               Clube da Escova
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Sua escova já está paga pela assinatura. Digite o WhatsApp usado na assinatura pra entrar na fila.
-            </p>
-            <div>
-              <Label>WhatsApp</Label>
-              <Input
-                placeholder="(11) 99999-9999"
-                inputMode="numeric"
-                autoComplete="tel"
-                name="phone"
-                value={clubePhone}
-                onChange={(e) => setClubePhone(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !clubeLoading) handleClubeSubmit(); }}
-              />
+          {clubeStep === "phone" ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Sua escova já está paga pela assinatura. Digite o WhatsApp usado
+                na assinatura — vamos te mandar um código de confirmação.
+              </p>
+              <div>
+                <Label>WhatsApp</Label>
+                <Input
+                  placeholder="(11) 99999-9999"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  name="phone"
+                  value={clubePhone}
+                  onChange={(e) => setClubePhone(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !clubeLoading) handleClubeSendOtp(); }}
+                />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Enviamos um código de 6 dígitos pro seu WhatsApp. Digite abaixo.
+              </p>
+              <div>
+                <Label>Código</Label>
+                <Input
+                  placeholder="000000"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={clubeOtp}
+                  onChange={(e) => setClubeOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !clubeLoading) handleClubeSubmit(); }}
+                />
+              </div>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline"
+                onClick={handleClubeSendOtp}
+                disabled={clubeLoading}
+              >
+                Não recebeu? Enviar outro código
+              </button>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setClubeModalOpen(false)} disabled={clubeLoading}>Cancelar</Button>
-            <Button onClick={handleClubeSubmit} disabled={clubeLoading}>
-              {clubeLoading ? "Verificando…" : "Entrar na fila"}
-            </Button>
+            <Button variant="outline" onClick={() => { setClubeModalOpen(false); resetClube(); }} disabled={clubeLoading}>Cancelar</Button>
+            {clubeStep === "phone" ? (
+              <Button onClick={handleClubeSendOtp} disabled={clubeLoading}>
+                {clubeLoading ? "Enviando…" : "Receber código"}
+              </Button>
+            ) : (
+              <Button onClick={handleClubeSubmit} disabled={clubeLoading}>
+                {clubeLoading ? "Verificando…" : "Entrar na fila"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCronSecret } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,21 +13,23 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ── AUTENTICAÇÃO (falha 5): só o agendador com x-cron-secret dispara o
+  //    cron de e-mails. CRON_SECRET ausente ⇒ 503 (falha fechada).
+  const cron = requireCronSecret(req);
+  if (!cron.ok) {
+    return new Response(JSON.stringify({ error: cron.error }), {
+      status: cron.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Try env var first, then fall back to system_config table
-    let RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    if (!RESEND_API_KEY) {
-      const { data: configRow } = await supabase
-        .from("system_config")
-        .select("value")
-        .eq("key", "resend_api_key")
-        .maybeSingle();
-      RESEND_API_KEY = configRow?.value || null;
-    }
+    // RESEND_API_KEY: APENAS Supabase Secrets (system_config não é cofre).
+    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
     if (!RESEND_API_KEY) {
       // Gracefully skip — email not configured
       return new Response(JSON.stringify({ skipped: true, message: "RESEND_API_KEY not configured, skipping email cron" }), {

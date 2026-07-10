@@ -1,5 +1,18 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// asaas-proxy — TRANCADO (falha 3 corrigida).
+//
+// O fluxo público de checkout mudou para a function asaas-checkout:
+// - preço/serviço/salão resolvidos SERVER-SIDE via purchase_intents;
+// - cartão via checkout hospedado do Asaas (nunca recebemos número/CVV).
+//
+// Esta function permanece APENAS como utilitário INTERNO de consulta de
+// status para staff autenticado (debug/recepção). As actions de escrita
+// (createCustomer/createPayment/createCardPayment) foram REMOVIDAS —
+// createCardPayment recebia número de cartão + CVV brutos do browser.
+//
+// Deploy: npx supabase functions deploy asaas-proxy --no-verify-jwt \
+//           --project-ref ewxiaxsmohxuabcmxuyc
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getSalonSecrets, requireStaff } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,147 +22,59 @@ const corsHeaders = {
 
 const ASAAS_BASE_URL = "https://api.asaas.com/v3";
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    const { action, salonId, data } = await req.json();
-
-    // Get Asaas API key from queue_settings
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const { data: settings } = await supabase
-      .from("queue_settings")
-      .select("asaas_api_key")
-      .eq("salon_id", salonId)
-      .single();
-
-    if (!settings?.asaas_api_key) {
-      return new Response(
-        JSON.stringify({ error: "Asaas API key not configured" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const apiKey = settings.asaas_api_key;
-    const headers = {
-      "Content-Type": "application/json",
-      access_token: apiKey,
-    };
-
-    let result;
-
-    if (action === "createCustomer") {
-      const res = await fetch(`${ASAAS_BASE_URL}/customers`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          name: data.name,
-          cpfCnpj: data.cpfCnpj,
-          phone: data.phone,
-          email: data.email,
-        }),
-      });
-      result = await res.json();
-
-      // If customer already exists, extract ID from error
-      if (result.errors) {
-        const match = result.errors[0]?.description?.match(/cus_\w+/);
-        if (match) {
-          result = { id: match[0] };
-        } else {
-          return new Response(
-            JSON.stringify({ error: result.errors[0]?.description || "Erro ao criar cliente" }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      }
-    } else if (action === "createPayment") {
-      const res = await fetch(`${ASAAS_BASE_URL}/payments`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          customer: data.customerId,
-          billingType: "PIX",
-          value: data.value,
-          description: data.description,
-          externalReference: data.externalReference,
-          dueDate: new Date().toISOString().split("T")[0],
-        }),
-      });
-      result = await res.json();
-
-      if (result.errors) {
-        return new Response(
-          JSON.stringify({ error: result.errors[0]?.description || "Erro no pagamento" }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    } else if (action === "createCardPayment") {
-      const res = await fetch(`${ASAAS_BASE_URL}/payments`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          customer: data.customerId,
-          billingType: "CREDIT_CARD",
-          value: data.value,
-          description: data.description,
-          externalReference: data.externalReference,
-          dueDate: new Date().toISOString().split("T")[0],
-          creditCard: {
-            holderName: data.cardHolderName,
-            number: data.cardNumber,
-            expiryMonth: data.cardExpiryMonth,
-            expiryYear: data.cardExpiryYear,
-            ccv: data.cardCcv,
-          },
-          creditCardHolderInfo: {
-            name: data.holderName,
-            cpfCnpj: data.holderCpf,
-            phone: data.holderPhone,
-            email: data.holderEmail || undefined,
-            postalCode: data.holderPostalCode,
-            addressNumber: data.holderAddressNumber,
-          },
-        }),
-      });
-      result = await res.json();
-
-      if (result.errors) {
-        return new Response(
-          JSON.stringify({ error: result.errors[0]?.description || "Erro no pagamento com cartão" }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    } else if (action === "getPixQrCode") {
-      const res = await fetch(`${ASAAS_BASE_URL}/payments/${data.paymentId}/pixQrCode`, {
-        headers,
-      });
-      result = await res.json();
-    } else if (action === "getPaymentStatus") {
-      const res = await fetch(`${ASAAS_BASE_URL}/payments/${data.paymentId}`, {
-        headers,
-      });
-      const payment = await res.json();
-      result = { status: payment.status };
-    } else {
-      return new Response(
-        JSON.stringify({ error: "Invalid action" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    const supa = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { persistSession: false } },
     );
+
+    const staff = await requireStaff(req, supa);
+    if (!staff.ok) return json({ error: staff.error }, staff.status);
+
+    const { action, data } = await req.json();
+
+    // Salão do usuário autenticado — nunca do body.
+    let salonId = staff.salonId;
+    if (salonId === "*") {
+      const { data: salon } = await supa
+        .from("salons").select("id").order("created_at").limit(1).maybeSingle();
+      salonId = salon?.id;
+    }
+    if (!salonId) return json({ error: "Salão não encontrado" }, 400);
+
+    const secrets = await getSalonSecrets(supa, salonId);
+    const apiKey = secrets?.asaas_api_key || Deno.env.get("ASAAS_KEY") || "";
+    if (!apiKey) return json({ error: "Asaas API key not configured" }, 503);
+
+    const headers = { "Content-Type": "application/json", access_token: apiKey };
+
+    if (action === "getPaymentStatus") {
+      const res = await fetch(`${ASAAS_BASE_URL}/payments/${data?.paymentId}`, { headers });
+      const payment = await res.json();
+      return json({ status: payment.status });
+    }
+
+    if (action === "getPixQrCode") {
+      const res = await fetch(`${ASAAS_BASE_URL}/payments/${data?.paymentId}/pixQrCode`, { headers });
+      return json(await res.json());
+    }
+
+    // Qualquer action de escrita foi removida deste proxy.
+    return json({ error: "Ação não suportada — use asaas-checkout" }, 410);
+  } catch (error) {
+    console.error("asaas-proxy error:", error);
+    return json({ error: "Erro interno" }, 500);
   }
 });

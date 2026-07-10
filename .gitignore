@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Segredos — NUNCA versionar (falha 9)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

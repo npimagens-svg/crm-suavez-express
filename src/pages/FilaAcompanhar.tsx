@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { RefreshCw, Clock, Users, AlertTriangle } from "lucide-react";
-import { useQueueRealtime } from "@/hooks/useQueueRealtime";
-import type { QueueEntry } from "@/types/queue";
+import { RefreshCw, Users, AlertTriangle } from "lucide-react";
+
+// Acompanhamento da fila via TOKEN OPACO (falhas 2/13 corrigidas):
+// - A página só enxerga a PRÓPRIA entrada (RPC fila_minha_situacao).
+// - Cancelar exige o token (RPC fila_cancelar) — o crédito de pagamento
+//   confirmado é gerado no SERVIDOR, nunca pelo browser.
 
 const statusLabels: Record<string, { label: string; color: string }> = {
   waiting: { label: "Aguardando", color: "bg-blue-500" },
@@ -19,76 +22,43 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   no_show: { label: "Nao compareceu", color: "bg-red-500" },
 };
 
+interface MinhaSituacao {
+  found: boolean;
+  status?: string;
+  payment_status?: string;
+  people_ahead?: number;
+  estimated_minutes?: number;
+  service_names?: string;
+  customer_first_name?: string;
+}
+
 export default function FilaAcompanhar() {
-  const { id } = useParams<{ id: string }>();
+  const { id: token } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  useQueueRealtime();
+  const [cancelling, setCancelling] = useState(false);
 
   const { data: entry, isLoading, refetch } = useQuery({
-    queryKey: ["queue_entry", id],
+    queryKey: ["fila_minha_situacao", token],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("queue_entries")
-        .select("*, service:services(id, name, price, duration_minutes)")
-        .eq("id", id)
-        .single();
+      const { data, error } = await supabase.rpc("fila_minha_situacao", { p_token: token });
       if (error) throw error;
-      return data as QueueEntry;
+      return data as unknown as MinhaSituacao;
     },
-    enabled: !!id,
-  });
-
-  const { data: aheadCount } = useQuery({
-    queryKey: ["queue_ahead", id, entry?.position, entry?.salon_id],
-    queryFn: async () => {
-      if (!entry) return 0;
-      const { count } = await supabase
-        .from("queue_entries")
-        .select("id", { count: "exact", head: true })
-        .eq("salon_id", entry.salon_id)
-        .in("status", ["waiting", "checked_in", "in_service"])
-        .lt("position", entry.position);
-      return count || 0;
-    },
-    enabled: !!entry && ["waiting", "checked_in"].includes(entry.status),
-    refetchInterval: 30000,
+    enabled: !!token,
+    refetchInterval: 15000,
   });
 
   const handleCancel = async () => {
-    if (!id || !entry) return;
-
-    if (entry.payment_status === "confirmed" && entry.service) {
-      const { data: settings } = await supabase
-        .from("queue_settings")
-        .select("credit_validity_days")
-        .eq("salon_id", entry.salon_id)
-        .single();
-
-      const validityDays = settings?.credit_validity_days || 30;
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + validityDays);
-
-      await supabase.from("customer_credits").insert({
-        salon_id: entry.salon_id,
-        customer_phone: entry.customer_phone,
-        amount: entry.service.price,
-        origin_queue_entry_id: id,
-        expires_at: expiresAt.toISOString(),
-      });
+    if (!token) return;
+    setCancelling(true);
+    try {
+      await supabase.rpc("fila_cancelar", { p_token: token });
+    } finally {
+      setCancelling(false);
+      setCancelDialogOpen(false);
+      refetch();
     }
-
-    await supabase
-      .from("queue_entries")
-      .update({
-        status: "cancelled",
-        payment_status: entry.payment_status === "confirmed" ? "credit" : entry.payment_status,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-
-    setCancelDialogOpen(false);
-    refetch();
   };
 
   if (isLoading) {
@@ -99,7 +69,7 @@ export default function FilaAcompanhar() {
     );
   }
 
-  if (!entry) {
+  if (!entry?.found) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-zinc-800 flex flex-col items-center justify-center p-4 text-white">
         <p>Entrada nao encontrada.</p>
@@ -108,9 +78,11 @@ export default function FilaAcompanhar() {
     );
   }
 
-  const status = statusLabels[entry.status] || statusLabels.waiting;
-  const isActive = ["waiting", "checked_in"].includes(entry.status);
+  const status = statusLabels[entry.status || "waiting"] || statusLabels.waiting;
+  const isActive = ["waiting", "checked_in"].includes(entry.status || "");
+  const aheadCount = entry.people_ahead ?? 0;
   const isNext = aheadCount === 0 && isActive;
+  const gotCredit = entry.payment_status === "credit";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-zinc-800 flex flex-col items-center p-4">
@@ -146,12 +118,16 @@ export default function FilaAcompanhar() {
             )}
 
             {(entry.status === "cancelled" || entry.status === "no_show") && (
-              <p className="text-lg text-muted-foreground">Voce recebeu um credito valido por 30 dias.</p>
+              <p className="text-lg text-muted-foreground">
+                {gotCredit
+                  ? "Voce recebeu um credito valido por 30 dias."
+                  : "Sua entrada na fila foi encerrada."}
+              </p>
             )}
 
             <div className="border-t pt-4">
               <p className="text-sm text-muted-foreground">Servico</p>
-              <p className="font-medium">{entry.service?.name}</p>
+              <p className="font-medium">{entry.service_names || "—"}</p>
             </div>
           </CardContent>
         </Card>
@@ -172,13 +148,15 @@ export default function FilaAcompanhar() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Desistir da fila?</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Voce recebera um credito de{" "}
-            {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(entry.service?.price || 0)}{" "}
-            valido por 30 dias.
+            {entry.payment_status === "confirmed"
+              ? "O valor pago vira um credito valido por 30 dias para usar em outra visita."
+              : "Sua entrada sera cancelada."}
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>Voltar</Button>
-            <Button variant="destructive" onClick={handleCancel}>Sim, desistir</Button>
+            <Button variant="outline" onClick={() => setCancelDialogOpen(false)} disabled={cancelling}>Voltar</Button>
+            <Button variant="destructive" onClick={handleCancel} disabled={cancelling}>
+              {cancelling ? "Cancelando…" : "Sim, desistir"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

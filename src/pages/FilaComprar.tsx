@@ -9,16 +9,13 @@ import { ArrowLeft, Check } from "lucide-react";
 import { usePublicQueue } from "@/hooks/usePublicQueue";
 import { useToast } from "@/hooks/use-toast";
 import { AsaasCheckout } from "@/components/queue/AsaasCheckout";
-import { notifyQueueEntry, notifyReception } from "@/lib/queueNotifications";
 import { supabase } from "@/lib/dynamicSupabaseClient";
-
-const SITE_URL = window.location.origin;
 
 type Step = "service" | "data" | "payment" | "confirmation";
 
 export default function FilaComprar() {
   const navigate = useNavigate();
-  const { salonId, services, settings, addToQueue, activeEntries } = usePublicQueue();
+  const { services, settings } = usePublicQueue();
   const { toast } = useToast();
 
   const [step, setStep] = useState<Step>("service");
@@ -28,14 +25,13 @@ export default function FilaComprar() {
   const [customerCpf, setCustomerCpf] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [notifyMinutes, setNotifyMinutes] = useState("40");
-  const [queueEntryId, setQueueEntryId] = useState("");
-  const [queuePosition, setQueuePosition] = useState(0);
+  const [trackingToken, setTrackingToken] = useState("");
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
 
-  const selectedServices = services.filter((s: any) => selectedServiceIds.includes(s.id));
-  const totalPrice = selectedServices.reduce((sum: number, s: any) => sum + Number(s.price || 0), 0);
-  const combinedName = selectedServices.map((s: any) => s.name).join(" + ");
+  const selectedServices = services.filter((s) => selectedServiceIds.includes(s.id));
+  const totalPrice = selectedServices.reduce((sum, s) => sum + Number(s.price || 0), 0);
+  const combinedName = selectedServices.map((s) => s.name).join(" + ");
   const notifyOptions = settings?.notify_options || [20, 40, 60, 90];
-  const effectiveSalonId = salonId || "";
 
   const toggleService = (serviceId: string) => {
     setSelectedServiceIds((prev) =>
@@ -65,53 +61,22 @@ export default function FilaComprar() {
       toast({ title: "CPF inválido", variant: "destructive" });
       return;
     }
-    // Validation passed - go to payment (don't create queue entry yet)
     setStep("payment");
   };
 
-  const handlePaymentConfirmed = async (paymentId: string, method?: "pix" | "credit_card") => {
+  // O WEBHOOK criou a entrada na fila (server-side). Aqui só recebemos o
+  // token opaco de acompanhamento e mostramos a posição.
+  const handleQueued = async (token: string) => {
+    setTrackingToken(token);
     try {
-      // Only NOW create the queue entry, after payment is confirmed
-      const entry = await addToQueue({
-        customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim(),
-        customer_email: customerEmail.trim() || undefined,
-        service_id: selectedServiceIds[0],
-        service_ids: selectedServiceIds,
-        notify_minutes_before: parseInt(notifyMinutes),
-        payment_id: paymentId,
-      });
-
-      setQueueEntryId(entry.id);
-      setQueuePosition(entry.position);
-
-      // Mark as confirmed + save payment method
-      await supabase
-        .from("queue_entries")
-        .update({
-          payment_status: "confirmed",
-          payment_method: method || "pix",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", entry.id);
-
-      const trackingUrl = `${SITE_URL}/fila/acompanhar/${entry.id}`;
-
-      await notifyQueueEntry(effectiveSalonId, {
-        customer_phone: customerPhone,
-        customer_email: customerEmail || null,
-        customer_name: customerName,
-      }, "entered", { position: entry.position, trackingUrl });
-
-      await notifyReception(effectiveSalonId,
-        "Nova cliente na fila!",
-        `${customerName} comprou ${combinedName} e entrou na fila (posição ${entry.position}).`
-      );
-
-      setStep("confirmation");
-    } catch {
-      toast({ title: "Erro ao entrar na fila após pagamento", variant: "destructive" });
-    }
+      localStorage.setItem("fila_tracking_token", token);
+    } catch { /* storage indisponível não impede o fluxo */ }
+    try {
+      const { data } = await supabase.rpc("fila_minha_situacao", { p_token: token });
+      const info = data as { found?: boolean; people_ahead?: number } | null;
+      if (info?.found) setQueuePosition((info.people_ahead ?? 0) + 1);
+    } catch { /* posição é cosmética aqui */ }
+    setStep("confirmation");
   };
 
   const fmt = (value: number) =>
@@ -141,7 +106,7 @@ export default function FilaComprar() {
             {services.length === 0 && (
               <p className="text-center text-zinc-400 py-8">Nenhum serviço disponível no momento.</p>
             )}
-            {services.map((service: any) => {
+            {services.map((service) => {
               const isSelected = selectedServiceIds.includes(service.id);
               return (
                 <Card key={service.id} className={`cursor-pointer transition-colors ${isSelected ? "border-primary ring-1 ring-primary" : "hover:border-primary"}`} onClick={() => toggleService(service.id)}>
@@ -204,15 +169,15 @@ export default function FilaComprar() {
 
         {step === "payment" && selectedServices.length > 0 && (
           <AsaasCheckout
-            salonId={effectiveSalonId}
             customerName={customerName}
             customerCpf={customerCpf}
             customerPhone={customerPhone}
             customerEmail={customerEmail || undefined}
+            serviceIds={selectedServiceIds}
             serviceName={combinedName}
             servicePrice={totalPrice}
-            queueEntryId={queueEntryId || `pending_${Date.now()}`}
-            onPaymentConfirmed={handlePaymentConfirmed}
+            notifyMinutes={parseInt(notifyMinutes)}
+            onQueued={handleQueued}
             onError={(err) => toast({ title: err, variant: "destructive" })}
           />
         )}
@@ -224,11 +189,13 @@ export default function FilaComprar() {
                 <Check className="h-8 w-8 text-green-500" />
               </div>
               <h2 className="text-xl font-bold">Você entrou na fila!</h2>
-              <p className="text-2xl font-bold text-primary">{queuePosition}ª posição</p>
+              {queuePosition !== null && (
+                <p className="text-2xl font-bold text-primary">{queuePosition}ª posição</p>
+              )}
               <p className="text-sm text-muted-foreground text-center">
                 Você receberá um aviso no WhatsApp {notifyMinutes} minutos antes do seu atendimento.
               </p>
-              <Button className="w-full" onClick={() => navigate(`/fila/acompanhar/${queueEntryId}`)}>
+              <Button className="w-full" onClick={() => navigate(`/fila/acompanhar/${trackingToken}`)}>
                 Acompanhar minha posição
               </Button>
             </CardContent>

@@ -1074,37 +1074,13 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
     if (!comanda) return;
 
     try {
-      if (comanda.caixa_id) {
-        // Check if the linked caixa is open — if so, subtract values from it
-        const linkedCaixa = openCaixas.find(c => c.id === comanda.caixa_id && !c.closed_at);
-        if (linkedCaixa) {
-          await reopenComanda({ comandaId: comanda.id, caixaId: comanda.caixa_id });
-        } else {
-          // Caixa already closed — just reopen the comanda without adjusting caixa values
-          const { error } = await supabase
-            .from("comandas")
-            .update({ closed_at: null, is_paid: false, caixa_id: null })
-            .eq("id", comanda.id);
-          if (error) throw error;
-
-          queryClient.invalidateQueries({ queryKey: ["comandas"] });
-          // Reload payments so they appear in the reopened comanda
-          loadPayments();
-          toast({ title: "Comanda reaberta com sucesso!", description: "O caixa original já estava fechado. Pagamentos mantidos. Ao finalizar, vincule a um caixa aberto." });
-        }
-      } else {
-        // No caixa linked — just reopen
-        const { error } = await supabase
-          .from("comandas")
-          .update({ closed_at: null, is_paid: false })
-          .eq("id", comanda.id);
-        if (error) throw error;
-
-        queryClient.invalidateQueries({ queryKey: ["comandas"] });
-        toast({ title: "Comanda reaberta com sucesso!" });
-      }
-
+      // Reabertura 100% no banco (falha 17): a RPC estorna pagamentos manuais
+      // de forma auditável (nunca deleta), preserva pagamentos de provedor
+      // (Asaas) e valida caixa aberto/papel server-side.
+      await reopenComanda({ comandaId: comanda.id });
+      queryClient.invalidateQueries({ queryKey: ["comandas"] });
       queryClient.invalidateQueries({ queryKey: ["comanda_items", comanda.id] });
+      loadPayments();
       onClose();
     } catch (err: any) {
       toast({ title: "Erro ao reabrir comanda", description: err?.message || "Tente novamente.", variant: "destructive" });
@@ -2132,19 +2108,16 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                           onClick={async () => {
                             try {
                               const creditAmt = Number(credit.amount);
-                              const newDiscount = localDiscount + creditAmt;
-                              const newTotal = Math.max(0, subtotal - newDiscount);
-                              const { error: errCredit } = await supabase
-                                .from("customer_credits")
-                                .update({ used: true, used_at: new Date().toISOString() })
-                                .eq("id", credit.id);
-                              if (errCredit) throw errCredit;
-                              const { error: errCom } = await supabase
-                                .from("comandas")
-                                .update({ discount: newDiscount, total: newTotal })
-                                .eq("id", comanda.id);
-                              if (errCom) throw errCom;
-                              setLocalDiscount(newDiscount);
+                              // Atômico no banco (falha 5): trava o crédito, marca
+                              // usado e recalcula o total em UMA transação — sem
+                              // corrida entre marcar-usado e aplicar-desconto.
+                              const { data, error } = await supabase.rpc("rpc_aplicar_credito_fila", {
+                                p_comanda: comanda.id,
+                                p_credit: credit.id,
+                              });
+                              if (error) throw error;
+                              const res = data as { new_discount?: number } | null;
+                              if (typeof res?.new_discount === "number") setLocalDiscount(res.new_discount);
                               setFilaCredits((prev) => prev.filter((c) => c.id !== credit.id));
                               queryClient.invalidateQueries({ queryKey: ["comandas"] });
                               toast({ title: `Crédito da fila de R$ ${creditAmt.toFixed(2)} aplicado!` });

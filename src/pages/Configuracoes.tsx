@@ -1023,7 +1023,9 @@ export default function Configuracoes() {
                                   <Select value={userAccess.role} onValueChange={(value) => handleRoleChange(userAccess.user_id, value as AppRole)} disabled={isUpdating}>
                                     <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                      {Object.entries(ROLE_LABELS).filter(([key]) => key !== "admin").map(([key, value]) => (
+                                      {/* admin incluído: só o admin atual vê este seletor e pode
+                                          promover qualquer usuário a Administrador (pedido do Cleiton). */}
+                                      {Object.entries(ROLE_LABELS).map(([key, value]) => (
                                         <SelectItem key={key} value={key}>
                                           <div className="flex items-center gap-2">
                                             <div className={`h-2 w-2 rounded-full ${value.color}`} />

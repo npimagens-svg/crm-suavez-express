@@ -131,7 +131,9 @@ export function IniciarAtendimentoFab() {
         service_id: serviceId,
         source: "walk_in",
       });
-      const entryId = (res as any)?.entryId;
+      // useQueue.addToQueue retorna a QueueEntry inteira — o id fica em .id
+      // (o campo .entryId nunca existiu; a fila ficava sem vínculo — falha 18)
+      const entryId = (res as { id?: string } | null)?.id;
 
       // 2. Vincula profissional da vez + cliente na entry
       if (entryId) {

@@ -81,10 +81,9 @@ export function useUserAccess() {
       if (!salonId) throw new Error("Salão não encontrado");
       if (!canManageAccess) throw new Error("Você não tem permissão para alterar acessos");
 
-      if (newRole === "admin") {
-        throw new Error("Não é permitido definir um usuário como admin");
-      }
-
+      // Promover a admin é PERMITIDO (pedido do Cleiton): a autorização real é
+      // no backend — a edge function update-user-role só deixa um admin
+      // promover, e ninguém altera o próprio papel.
       const { error } = await supabase.functions.invoke("update-user-role", {
         body: { userId, salonId, newRole, accessLevelId: accessLevelId ?? null },
       });

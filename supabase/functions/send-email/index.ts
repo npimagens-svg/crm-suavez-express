@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCronSecret, requireStaff } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -303,18 +304,23 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Try env var first, then fall back to system_config table
-    let RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    if (!RESEND_API_KEY) {
-      const { data: configRow } = await supabase
-        .from("system_config")
-        .select("value")
-        .eq("key", "resend_api_key")
-        .maybeSingle();
-      RESEND_API_KEY = configRow?.value || null;
+    // ── AUTENTICAÇÃO (falha 5): staff do salão, service_role interno ou
+    //    segredo de cron. Sem nenhum dos três ⇒ recusa.
+    const cron = requireCronSecret(req);
+    if (!cron.ok) {
+      const staff = await requireStaff(req, supabase);
+      if (!staff.ok) {
+        return new Response(JSON.stringify({ error: staff.error }), {
+          status: staff.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
+
+    // RESEND_API_KEY: APENAS Supabase Secrets (falha 6 — system_config não é
+    // cofre). Ausente ⇒ pula com aviso (nenhum e-mail sai por via insegura).
+    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
     if (!RESEND_API_KEY) {
-      // Gracefully skip — email not configured
       return new Response(JSON.stringify({ skipped: true, reason: "RESEND_API_KEY não configurada" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

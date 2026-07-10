@@ -207,13 +207,24 @@ export default function Fila() {
             ? selectedEntry.service_ids
             : (selectedEntry.service_id ? [selectedEntry.service_id] : []);
           const { data: svcs } = await supabase.from("services").select("id, name, price, duration_minutes").in("id", svcIds);
-          const total = (svcs || []).reduce((sum: number, s: any) => sum + Number(s.price || 0), 0);
+          type SvcRow = { id: string; name: string; price: number; duration_minutes: number | null };
+          const svcRows = (svcs || []) as SvcRow[];
+          // Valor do pagamento = SNAPSHOT do que foi confirmado no Asaas
+          // (falha 12), não o preço ATUAL do catálogo (que pode ter mudado
+          // entre a compra e o atendimento). Fallback = soma do catálogo só se
+          // a entrada antiga não tiver paid_amount.
+          const catalogTotal = svcRows.reduce((sum, s) => sum + Number(s.price || 0), 0);
+          const paidAmount = (selectedEntry as { paid_amount?: number | null }).paid_amount;
+          const total = (paidAmount !== null && paidAmount !== undefined)
+            ? Number(paidAmount)
+            : catalogTotal;
           const payMethod = selectedEntry.payment_method === "credit_card" ? "credit_card" : "pix";
           await supabase.from("payments").insert({
             comanda_id: comandaId,
             salon_id: salonId,
             payment_method: payMethod,
             payment_provider: "asaas", // pagamento online via fila → sempre Asaas
+            provider_payment_id: selectedEntry.payment_id || null,
             amount: total,
             fee_amount: 0,
             net_amount: total,
@@ -221,8 +232,8 @@ export default function Fila() {
           });
 
           // Agenda for visual tracking (um por serviço)
-          if ((svcs || []).length > 0) {
-            await supabase.from("appointments").insert((svcs || []).map((s: any) => ({
+          if (svcRows.length > 0) {
+            await supabase.from("appointments").insert(svcRows.map((s) => ({
               salon_id: salonId,
               client_id: clientId,
               professional_id: professionalId,

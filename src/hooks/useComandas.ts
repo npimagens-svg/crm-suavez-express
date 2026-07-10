@@ -79,20 +79,29 @@ export interface ComandaItemInput {
   product_cost?: number;
 }
 
-export function useComandas() {
+export interface ComandasRange {
+  from?: Date;
+  to?: Date;
+}
+
+export function useComandas(range?: ComandasRange) {
   const { salonId } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Período server-side (falha 20): sem teto fixo de 90 dias. Default = mês
+  // corrente; telas de comissão/histórico passam o intervalo desejado.
+  const fromDate = range?.from
+    ? new Date(range.from)
+    : (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })();
+  const toDate = range?.to ?? null;
+
   const query = useQuery({
-    queryKey: ["comandas", salonId],
+    queryKey: ["comandas", salonId, fromDate.toISOString(), toDate?.toISOString() ?? "open"],
     queryFn: async () => {
       if (!salonId) return [];
-      // Limit to last 90 days for performance
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 90);
 
-      const { data, error } = await supabase
+      let q = supabase
         .from("comandas")
         .select(`
           *,
@@ -121,8 +130,10 @@ export function useComandas() {
           )
         `)
         .eq("salon_id", salonId)
-        .gte("created_at", cutoff.toISOString())
-        .order("created_at", { ascending: false });
+        .gte("created_at", fromDate.toISOString());
+      if (toDate) q = q.lte("created_at", toDate.toISOString());
+
+      const { data, error } = await q.order("created_at", { ascending: false });
       if (error) throw error;
       return data as Comanda[];
     },
@@ -266,70 +277,28 @@ export function useComandas() {
     },
   });
 
+  // Reabertura via RPC transacional (falha 17): NÃO apaga pagamentos.
+  // Pagamentos manuais viram "void" auditável (estorno registrado em
+  // caixa_movements); pagamentos de PROVEDOR ONLINE (Asaas) são preservados.
   const reopenComandaMutation = useMutation({
-    mutationFn: async ({ comandaId, caixaId }: { comandaId: string; caixaId: string }) => {
-      // 1. Get payments linked to this comanda to subtract from caixa
-      const { data: payments, error: paymentsError } = await supabase
-        .from("payments")
-        .select("payment_method, amount")
-        .eq("comanda_id", comandaId);
-      if (paymentsError) throw paymentsError;
-
-      // 2. Calculate totals to subtract per payment method
-      const totalsToSubtract = {
-        cash: 0, pix: 0, credit_card: 0, debit_card: 0, other: 0,
-      };
-      for (const p of (payments || [])) {
-        const method = p.payment_method as keyof typeof totalsToSubtract;
-        if (method in totalsToSubtract) {
-          totalsToSubtract[method] += Number(p.amount);
-        }
-      }
-
-      // 3. Get current caixa totals and subtract
-      const { data: currentCaixa, error: caixaError } = await supabase
-        .from("caixas")
-        .select("*")
-        .eq("id", caixaId)
-        .single();
-      if (caixaError) throw caixaError;
-      if (currentCaixa.closed_at) throw new Error("O caixa precisa estar aberto para reabrir a comanda.");
-
-      await supabase
-        .from("caixas")
-        .update({
-          total_cash: Math.max(0, (currentCaixa.total_cash || 0) - totalsToSubtract.cash),
-          total_pix: Math.max(0, (currentCaixa.total_pix || 0) - totalsToSubtract.pix),
-          total_credit_card: Math.max(0, (currentCaixa.total_credit_card || 0) - totalsToSubtract.credit_card),
-          total_debit_card: Math.max(0, (currentCaixa.total_debit_card || 0) - totalsToSubtract.debit_card),
-          total_other: Math.max(0, (currentCaixa.total_other || 0) - totalsToSubtract.other),
-        })
-        .eq("id", caixaId);
-
-      // 4. Delete existing payments (they'll be re-created when closing again)
-      await supabase
-        .from("payments")
-        .delete()
-        .eq("comanda_id", comandaId);
-
-      // 5. Reopen the comanda
-      const { data, error } = await supabase
-        .from("comandas")
-        .update({
-          closed_at: null,
-          is_paid: false,
-          caixa_id: null,
-        })
-        .eq("id", comandaId)
-        .select()
-        .single();
+    mutationFn: async ({ comandaId, reason }: { comandaId: string; caixaId?: string; reason?: string }) => {
+      const { data, error } = await supabase.rpc("rpc_reabrir_comanda", {
+        p_comanda: comandaId,
+        p_reason: reason ?? null,
+      });
       if (error) throw error;
-      return data;
+      return data as { ok?: boolean; voided_payments?: number; kept_provider_payments?: number };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["comandas", salonId] });
       queryClient.invalidateQueries({ queryKey: ["caixas", salonId] });
-      toast({ title: "Comanda reaberta com sucesso!", description: "Os valores foram descontados do caixa." });
+      const kept = data?.kept_provider_payments ?? 0;
+      toast({
+        title: "Comanda reaberta com sucesso!",
+        description: kept > 0
+          ? `Pagamentos manuais estornados. ${kept} pagamento(s) online preservado(s).`
+          : "Pagamentos manuais estornados do caixa (auditado).",
+      });
     },
     onError: (error: Error) => {
       toast({ title: "Erro ao reabrir comanda", description: error.message, variant: "destructive" });

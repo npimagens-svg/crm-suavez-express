@@ -1,23 +1,21 @@
-// Webhook Asaas → sincroniza queue_entries.payment_status + alerta chargeback
+// Webhook Asaas → reconcilia pagamento, fila, crédito e caixa (server-side).
 //
-// Eventos cobertos:
-//   PAYMENT_CONFIRMED, PAYMENT_RECEIVED      → queue.payment_status = 'confirmed'
-//   PAYMENT_OVERDUE                          → log (enum queue não suporta overdue)
-//   PAYMENT_DELETED, PAYMENT_REFUNDED        → queue.payment_status = 'refunded'
-//   PAYMENT_PARTIALLY_REFUNDED               → log
-//   PAYMENT_UPDATED                          → log (mudança valor/vencimento)
-//   PAYMENT_CREDIT_CARD_CAPTURE_REFUSED      → log + alerta WhatsApp (cartão recusado)
-//   PAYMENT_CHARGEBACK_REQUESTED             → 🚨 ALERTA WHATSAPP IMEDIATO pro Cleiton
-//   PAYMENT_CHARGEBACK_DISPUTE               → 🚨 ALERTA dispute em curso
-//   PAYMENT_AWAITING_CHARGEBACK_REVERSAL     → 🚨 ALERTA dispute perdida
+// SEGURANÇA (falhas 8, 10, 14 corrigidas):
+// - Token FAIL-CLOSED: ASAAS_WEBHOOK_TOKEN ausente ⇒ 503 e NADA é processado;
+//   token errado ⇒ 401. Sem fallback hardcoded de nenhum segredo.
+// - PAYMENT_CONFIRMED/RECEIVED ⇒ RPC webhook_pagamento_confirmado (transacional,
+//   idempotente): cria a queue_entry a partir da purchase_intent MESMO que a
+//   cliente tenha fechado o navegador. Retry/duplicata do Asaas ⇒ 1 entry só.
+// - REFUND/DELETE/CHARGEBACK ⇒ RPC webhook_pagamento_revertido: cancela fila,
+//   expira crédito não usado, voida pagamento interno e estorna caixa aberto.
+// - Resend key: APENAS env (Supabase Secrets) — system_config não é cofre.
 //
-// Token de auth: secret ASAAS_WEBHOOK_TOKEN (gerado pelo Asaas, formato whsec_*).
-// Deploy: npx supabase functions deploy asaas-webhook --no-verify-jwt
+// Deploy: npx supabase functions deploy asaas-webhook --no-verify-jwt \
+//           --project-ref ewxiaxsmohxuabcmxuyc
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CLEITON_WA = "5511976847114"; // alvo dos alertas urgentes
 const EVOLUTION_URL = "http://172.18.0.1:8080/message/sendText/claudebot";
-const EVOLUTION_KEY = Deno.env.get("EVOLUTION_KEY") ?? "EvoStack2026Key!";
 
 const fmtBRL = (n: number) =>
   `R$ ${Number(n).toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
@@ -106,7 +104,7 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
 
   if (!["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"].includes(event)) return "clube_skip";
 
-  // Dados do cliente no Asaas
+  // Dados do cliente no Asaas (chave só de env — falha fechada, sem fallback)
   const asaasKey = Deno.env.get("ASAAS_KEY") ?? "";
   // deno-lint-ignore no-explicit-any
   let cli: any = {};
@@ -145,15 +143,11 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
     { onConflict: "assinante_id,competencia", ignoreDuplicates: true },
   );
 
-  // E-mail de boas-vindas (só no primeiro pagamento)
+  // E-mail de boas-vindas (só no primeiro pagamento).
+  // RESEND_API_KEY: APENAS Supabase Secrets — system_config NÃO é cofre.
   let emailStatus = "sem_email";
   if (!reg.welcome_email_enviado && reg.email) {
-    let resendKey = Deno.env.get("RESEND_API_KEY");
-    if (!resendKey) {
-      const { data: cfg } = await supa.from("system_config")
-        .select("value").eq("key", "resend_api_key").maybeSingle();
-      resendKey = cfg?.value || null;
-    }
+    const resendKey = Deno.env.get("RESEND_API_KEY");
     if (resendKey) {
       const primeiroNome = (reg.nome || "Bem-vinda").split(" ")[0];
       const mail = await fetch("https://api.resend.com/emails", {
@@ -181,13 +175,18 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
   return `clube_ativo (${emailStatus})`;
 }
 
-// Tenta enviar mensagem urgente pro Cleiton via Evolution claudebot.
-// Best-effort: erro NÃO trava o webhook (Asaas precisa de 200 rápido).
+// Alerta urgente pro Cleiton via Evolution claudebot. Best-effort — e SEM
+// fallback de chave: EVOLUTION_KEY ausente ⇒ só loga (falha fechada).
 async function alertCleiton(text: string): Promise<void> {
+  const key = Deno.env.get("EVOLUTION_KEY") ?? "";
+  if (!key) {
+    console.warn("alertCleiton: EVOLUTION_KEY ausente — alerta não enviado:", text.slice(0, 80));
+    return;
+  }
   try {
     await fetch(EVOLUTION_URL, {
       method: "POST",
-      headers: { "apikey": EVOLUTION_KEY, "Content-Type": "application/json" },
+      headers: { "apikey": key, "Content-Type": "application/json" },
       body: JSON.stringify({
         number: CLEITON_WA,
         options: { delay: 1200, presence: "composing" },
@@ -212,8 +211,17 @@ Deno.serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const headerToken = req.headers.get("asaas-access-token") ?? "";
+  // ── FAIL CLOSED: sem token configurado, NADA é processado ──
   const expectedToken = Deno.env.get("ASAAS_WEBHOOK_TOKEN") ?? "";
+  if (!expectedToken) {
+    console.error("asaas-webhook: ASAAS_WEBHOOK_TOKEN não configurado — recusando");
+    return new Response("Webhook not configured", { status: 503 });
+  }
+  const headerToken = req.headers.get("asaas-access-token") ?? "";
+  if (headerToken !== expectedToken) {
+    console.warn("asaas-webhook: token mismatch — recusando");
+    return new Response("Unauthorized", { status: 401 });
+  }
 
   // deno-lint-ignore no-explicit-any
   let body: any;
@@ -229,31 +237,21 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
-  if (expectedToken && headerToken !== expectedToken) {
-    console.warn("Asaas webhook: token mismatch, ignoring");
-    return new Response("Token mismatch", { status: 401 });
-  }
-
   const event: string = body.event ?? "";
   const payment = body.payment;
   if (!payment?.id) {
     return new Response("No payment", { status: 400 });
   }
 
-  // Mapeia evento → novo payment_status do queue_entries
   const confirmed = ["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"].includes(event);
   const overdue = event === "PAYMENT_OVERDUE";
-  const deleted = ["PAYMENT_DELETED", "PAYMENT_REFUNDED", "PAYMENT_PARTIALLY_REFUNDED"].includes(event);
+  const reverted = ["PAYMENT_DELETED", "PAYMENT_REFUNDED"].includes(event);
   const chargeback = [
     "PAYMENT_CHARGEBACK_REQUESTED",
     "PAYMENT_CHARGEBACK_DISPUTE",
     "PAYMENT_AWAITING_CHARGEBACK_REVERSAL",
   ].includes(event);
   const cardRefused = event === "PAYMENT_CREDIT_CARD_CAPTURE_REFUSED";
-
-  let newStatus: string | null = null;
-  if (confirmed) newStatus = "confirmed";
-  else if (deleted) newStatus = "refunded";
 
   let action = "ignored";
 
@@ -262,51 +260,78 @@ Deno.serve(async (req) => {
     action = await handleClube(supa, event, payment);
   }
 
-  // Sync queue_entries quando aplicável
-  if (newStatus) {
-    const { data: updated, error: qErr } = await supa
-      .from("queue_entries")
-      .update({
-        payment_status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("payment_id", payment.id)
-      .select("id, salon_id, customer_name");
-
-    if (qErr) {
-      console.error("queue_entries update error:", qErr);
+  // ── Pagamento confirmado → RPC transacional idempotente cria/atualiza a fila
+  if (confirmed && !payment.subscription) {
+    const { data: result, error: rpcErr } = await supa.rpc("webhook_pagamento_confirmado", {
+      p_asaas_payment_id: payment.id,
+      p_external_reference: payment.externalReference ?? null,
+      p_value: payment.value ?? null,
+      p_billing_type: payment.billingType ?? null,
+    });
+    if (rpcErr) {
+      console.error("webhook_pagamento_confirmado error:", rpcErr);
+      action = `confirm_error: ${rpcErr.message}`;
     } else {
-      action = `${newStatus} (${updated?.length ?? 0} rows)`;
+      action = `confirmed (${result?.mode ?? "?"})`;
+    }
+  }
+
+  // ── Refund / delete / chargeback → reconciliação completa ──
+  if (reverted || chargeback) {
+    const { data: rec, error: recErr } = await supa.rpc("webhook_pagamento_revertido", {
+      p_asaas_payment_id: payment.id,
+      p_event: event,
+    });
+    if (recErr) {
+      console.error("webhook_pagamento_revertido error:", recErr);
+      action = `revert_error: ${recErr.message}`;
+    } else {
+      action = `reverted (${event})`;
+      if (rec?.caixa_pendente_manual) {
+        await alertCleiton(
+          `⚠️ Estorno Asaas em CAIXA JÁ FECHADO\n\n` +
+          `🆔 ${payment.id} (${event})\n` +
+          `O pagamento interno foi anulado, mas o caixa do dia já estava fechado. ` +
+          `Confira o fechamento correspondente manualmente.`
+        );
+      }
     }
   }
 
   // Captura LEAD: cobrança nova → registra em asaas_pending_leads
-  // Permite follow-up se cliente nunca pagar.
-  // (Assinatura do Clube fica fora: a renovação mensal geraria lead falso.)
   if (event === "PAYMENT_CREATED" && !payment.subscription) {
-    // Tenta achar queue_entry pra pegar dados do cliente
-    const { data: q } = await supa
+    // Com o fluxo novo, a intent tem os dados do cliente ANTES do pagamento
+    const { data: intent } = await supa
+      .from("purchase_intents")
+      .select("id, salon_id, customer_name, customer_phone, customer_email, queue_entry_id")
+      .eq("asaas_payment_id", payment.id)
+      .maybeSingle();
+
+    const { data: q } = intent ? { data: null } : await supa
       .from("queue_entries")
       .select("id, salon_id, customer_name, customer_phone, customer_email")
       .eq("payment_id", payment.id)
       .maybeSingle();
 
-    const salonId = q?.salon_id ?? "9793948a-e208-4054-a4df-4b8f2b3b3965";
+    const { data: salonRow } = (intent || q) ? { data: null } : await supa
+      .from("salons").select("id").order("created_at").limit(1).maybeSingle();
 
-    const { error: leadErr } = await supa.from("asaas_pending_leads").upsert({
-      salon_id: salonId,
-      asaas_payment_id: payment.id,
-      customer_name: q?.customer_name ?? null,
-      customer_phone: q?.customer_phone ?? null,
-      customer_email: q?.customer_email ?? null,
-      value: payment.value ?? null,
-      billing_type: payment.billingType ?? null,
-      description: payment.description ?? null,
-      queue_entry_id: q?.id ?? null,
-      status: "pending",
-    }, { onConflict: "asaas_payment_id" });
-
-    action = leadErr ? `lead_error: ${leadErr.message}` : "lead_captured";
+    const salonId = intent?.salon_id ?? q?.salon_id ?? salonRow?.id;
+    if (salonId) {
+      const { error: leadErr } = await supa.from("asaas_pending_leads").upsert({
+        salon_id: salonId,
+        asaas_payment_id: payment.id,
+        customer_name: intent?.customer_name ?? q?.customer_name ?? null,
+        customer_phone: intent?.customer_phone ?? q?.customer_phone ?? null,
+        customer_email: intent?.customer_email ?? q?.customer_email ?? null,
+        value: payment.value ?? null,
+        billing_type: payment.billingType ?? null,
+        description: payment.description ?? null,
+        queue_entry_id: intent?.queue_entry_id ?? q?.id ?? null,
+        status: "pending",
+      }, { onConflict: "asaas_payment_id" });
+      action = leadErr ? `lead_error: ${leadErr.message}` : "lead_captured";
+    }
   }
 
   // Atualiza status do lead quando pagamento confirma/cancela
@@ -316,7 +341,7 @@ Deno.serve(async (req) => {
       resolved_at: new Date().toISOString(),
       resolved_reason: `Pago via Asaas (${event})`,
     }).eq("asaas_payment_id", payment.id).eq("status", "pending");
-  } else if (deleted) {
+  } else if (reverted) {
     await supa.from("asaas_pending_leads").update({
       status: "cancelled",
       resolved_at: new Date().toISOString(),
@@ -344,7 +369,6 @@ Deno.serve(async (req) => {
       `Entre no Asaas e veja o que fazer (defender, refund, etc).\n` +
       `https://www.asaas.com/payments/show/${payment.id}`
     );
-    action = `chargeback_alert_sent (${event})`;
   } else if (cardRefused) {
     const valueText = payment.value ? fmtBRL(Number(payment.value)) : "(valor ?)";
     await alertCleiton(
@@ -356,6 +380,13 @@ Deno.serve(async (req) => {
       `Verifique antes de atender.`
     );
     action = "card_refused_alert_sent";
+  } else if (event === "PAYMENT_PARTIALLY_REFUNDED") {
+    // Estorno PARCIAL não cancela fila nem voida pagamento: reconciliar na mão.
+    await alertCleiton(
+      `⚠️ Estorno PARCIAL no Asaas\n\n🆔 ${payment.id}\n` +
+      `Fila/comanda NÃO foram alteradas automaticamente — confira e ajuste manualmente.`
+    );
+    action = "partial_refund_alert";
   } else if (overdue) {
     action = "overdue_logged";
   } else if (event === "PAYMENT_UPDATED") {

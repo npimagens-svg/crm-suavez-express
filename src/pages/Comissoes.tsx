@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { calculateItemCardFee as calcItemCardFee } from "@/lib/commissionFees";
 import { AppLayoutNew } from "@/components/layout/AppLayoutNew";
 import { Sensitive } from "@/components/common/SensitiveData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,7 +95,12 @@ export default function Comissoes() {
     professionalId: selectedProfessional !== "all" ? selectedProfessional : undefined,
   });
   const { payments: commissionPayments, payCommissionAsync, isPaying, reverseCommission, isReversing } = useCommissionPayments();
-  const { comandas, isLoading: loadingComandas } = useComandas();
+  // Busca exatamente o período selecionado (falha 20): sem teto fixo de 90
+  // dias que truncava silenciosamente períodos antigos.
+  const { comandas, isLoading: loadingComandas } = useComandas({
+    from: new Date(dateStart + "T00:00:00"),
+    to: new Date(dateEnd + "T23:59:59.999"),
+  });
   const { services, isLoading: loadingServices } = useServices();
   const { clients, isLoading: loadingClients } = useClients();
   const { settings: commissionSettings } = useCommissionSettings();
@@ -150,19 +156,11 @@ export default function Comissoes() {
     });
   }, [comandas, dateStart, dateEnd]);
 
-  // Helper to calculate the proportional card fee for an item
-  const calculateItemCardFee = (comanda: typeof filteredComandas[0], itemTotal: number): number => {
-    const payments = comanda.payments || [];
-    const comandaTotal = comanda.total || 0;
-    if (comandaTotal === 0) return 0;
-
-    // Sum up all card fees from payments
-    const totalCardFees = payments.reduce((sum, p) => sum + (p.fee_amount || 0), 0);
-    if (totalCardFees === 0) return 0;
-
-    // Proportionally distribute the fee based on item's share of total
-    return (itemTotal / comandaTotal) * totalCardFees;
-  };
+  // Rateio da taxa de cartão por item (falha 20) — lógica pura e testada em
+  // src/lib/commissionFees.ts. Denominador = soma dos itens (não comanda.total),
+  // então o total rateado nunca excede a taxa realmente paga, mesmo com desconto.
+  const calculateItemCardFee = (comanda: typeof filteredComandas[0], itemTotal: number): number =>
+    calcItemCardFee(comanda.items || [], comanda.payments || [], itemTotal);
 
   // Get detailed commission items for selected professional
   const commissionDetails = useMemo(() => {
