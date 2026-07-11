@@ -11,6 +11,8 @@ export interface PublicService {
   name: string;
   price: number;
   duration_minutes: number | null;
+  category: string | null;
+  description: string | null;
 }
 
 interface PublicBootstrap {

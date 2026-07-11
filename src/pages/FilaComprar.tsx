@@ -39,6 +39,20 @@ export default function FilaComprar() {
     );
   };
 
+  // Seções na ordem em que a RPC devolve (sort_order); título amigável por categoria.
+  const CATEGORY_LABELS: Record<string, string> = {
+    CABELOS: "Cabelo",
+    "MANICURE E PEDICURE": "Manicure e Pedicure",
+    "ESTETICA FACIAL": "Sobrancelha e Rosto",
+  };
+  const sections = services.reduce<{ label: string; items: typeof services }[]>((acc, s) => {
+    const label = CATEGORY_LABELS[s.category ?? ""] ?? "Outros";
+    const last = acc[acc.length - 1];
+    if (last && last.label === label) last.items.push(s);
+    else acc.push({ label, items: [s] });
+    return acc;
+  }, []);
+
   const handleDataSubmit = async () => {
     if (!customerName.trim() || !customerPhone.trim() || !customerCpf.trim()) {
       toast({ title: "Preencha nome, CPF e WhatsApp", variant: "destructive" });
@@ -102,29 +116,39 @@ export default function FilaComprar() {
 
         {step === "service" && (
           <div className="space-y-3 pb-24">
-            <p className="text-sm text-zinc-400">Toque para escolher um ou mais serviços.</p>
+            <p className="text-sm text-zinc-400">
+              Toque para escolher um ou mais serviços. O preço é final — cabelo longo (passa da linha do busto) já tem o próprio preço.
+            </p>
             {services.length === 0 && (
               <p className="text-center text-zinc-400 py-8">Nenhum serviço disponível no momento.</p>
             )}
-            {services.map((service) => {
-              const isSelected = selectedServiceIds.includes(service.id);
-              return (
-                <Card key={service.id} className={`cursor-pointer transition-colors ${isSelected ? "border-primary ring-1 ring-primary" : "hover:border-primary"}`} onClick={() => toggleService(service.id)}>
-                  <CardContent className="flex justify-between items-center py-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-5 w-5 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? "bg-primary border-primary" : "border-zinc-400"}`}>
-                        {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
-                      </div>
-                      <div>
-                        <p className="font-medium">{service.name}</p>
-                        <p className="text-sm text-muted-foreground">{service.duration_minutes} min</p>
-                      </div>
-                    </div>
-                    <p className="font-semibold text-primary">{fmt(service.price)}</p>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {sections.map((section) => (
+              <div key={section.label} className="space-y-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400 pt-2">{section.label}</h2>
+                {section.items.map((service) => {
+                  const isSelected = selectedServiceIds.includes(service.id);
+                  return (
+                    <Card key={service.id} className={`cursor-pointer transition-colors ${isSelected ? "border-primary ring-1 ring-primary" : "hover:border-primary"}`} onClick={() => toggleService(service.id)}>
+                      <CardContent className="flex justify-between items-center py-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-5 w-5 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? "bg-primary border-primary" : "border-zinc-400"}`}>
+                            {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
+                          </div>
+                          <div>
+                            <p className="font-medium">{service.name}</p>
+                            {service.description && (
+                              <p className="text-xs text-muted-foreground">{service.description}</p>
+                            )}
+                            <p className="text-sm text-muted-foreground">{service.duration_minutes} min</p>
+                          </div>
+                        </div>
+                        <p className="font-semibold text-primary whitespace-nowrap pl-2">{fmt(service.price)}</p>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            ))}
             {selectedServiceIds.length > 0 && (
               <div className="fixed bottom-0 left-0 right-0 p-4 bg-zinc-900/95 border-t border-zinc-700">
                 <div className="max-w-sm mx-auto">
