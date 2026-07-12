@@ -16,8 +16,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CLEITON_WA = "5511976847114"; // alvo dos alertas urgentes
 // Evolution precisa ser alcançável do Supabase cloud (IP interno da VPS não é).
-const EVOLUTION_BASE = Deno.env.get("EVOLUTION_URL") ?? "http://72.60.6.168:8080";
-const EVOLUTION_URL = `${EVOLUTION_BASE.replace(/\/$/, "")}/message/sendText/claudebot`;
+// Jarbas mora na Evolution v2.3.7 porta 8083, instância "jarbas" (a claudebot da 8080 é legado morto).
+const EVOLUTION_BASE = Deno.env.get("EVOLUTION_URL") ?? "http://72.60.6.168:8083";
+const EVOLUTION_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") ?? "jarbas";
+const EVOLUTION_URL = `${EVOLUTION_BASE.replace(/\/$/, "")}/message/sendText/${EVOLUTION_INSTANCE}`;
 
 const fmtBRL = (n: number) =>
   `R$ ${Number(n).toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
@@ -259,8 +261,8 @@ async function alertCleiton(text: string): Promise<boolean> {
       headers: { "apikey": key, "Content-Type": "application/json" },
       body: JSON.stringify({
         number: CLEITON_WA,
-        options: { delay: 1200, presence: "composing" },
-        textMessage: { text },
+        delay: 1200,
+        text,
       }),
     });
     if (!r.ok) {
