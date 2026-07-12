@@ -144,8 +144,11 @@ export default function FilaComprar() {
           const token = st.tracking_token;
           // Entrada ainda ATIVA na fila? Compra antiga já atendida/cancelada
           // não pode reabrir a confirmação nem travar uma compra nova.
-          const { data } = await supabase.rpc("fila_minha_situacao", { p_token: token });
+          const { data, error } = await supabase.rpc("fila_minha_situacao", { p_token: token });
           if (cancelled || stopped) return;
+          // supabase-js v2 NÃO lança: falha transitória vira error preenchido.
+          // Sem stop nem clearPendingIntent — tenta de novo no próximo tick.
+          if (error) return;
           const situacao = data as { found?: boolean; status?: string; people_ahead?: number } | null;
           const ativa = !!situacao?.found && ["waiting", "checked_in"].includes(situacao?.status ?? "");
           if (!stillOurs()) {
@@ -188,7 +191,6 @@ export default function FilaComprar() {
       if (stopRecoveryRef.current === stop) stopRecoveryRef.current = null;
     };
     // roda UMA vez, na montagem — a intent pendente é a daquele momento
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Checkout NOVO iniciado (step chegou em "payment"): o poller de recuperação
