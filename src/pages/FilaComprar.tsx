@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import { usePublicQueue } from "@/hooks/usePublicQueue";
 import { useToast } from "@/hooks/use-toast";
 import { AsaasCheckout } from "@/components/queue/AsaasCheckout";
+import { getIntentStatus, loadPendingIntent, clearPendingIntent } from "@/lib/asaas";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 
 type Step = "service" | "data" | "payment" | "confirmation";
@@ -92,6 +93,46 @@ export default function FilaComprar() {
     } catch { /* posição é cosmética aqui */ }
     setStep("confirmation");
   };
+
+  // RECUPERAÇÃO (caso real: pagou e fechou o navegador antes da confirmação).
+  // A entrada já nasceu no servidor via webhook — aqui reencontramos ela pela
+  // intenção pendente salva no localStorage e entregamos token + posição.
+  // Sem corrida nem duplicata: o navegador nunca insere na fila, só consulta.
+  useEffect(() => {
+    const pendingIntent = loadPendingIntent();
+    if (!pendingIntent) return;
+    let cancelled = false;
+    let interval: number | undefined;
+
+    const stop = () => {
+      if (interval !== undefined) window.clearInterval(interval);
+    };
+
+    const check = async () => {
+      try {
+        const st = await getIntentStatus(pendingIntent);
+        if (cancelled) return;
+        if (st.found && st.status === "queued" && st.tracking_token) {
+          stop();
+          clearPendingIntent();
+          handleQueued(st.tracking_token);
+        } else if (!st.found || st.status === "cancelled" || st.status === "refunded" || st.status === "chargeback") {
+          stop();
+          clearPendingIntent();
+        }
+        // pending/paid: o webhook pode estar a caminho — continua consultando
+      } catch { /* rede oscilou: tenta de novo no próximo tick */ }
+    };
+
+    check();
+    interval = window.setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      stop();
+    };
+    // roda UMA vez, na montagem — a intent pendente é a daquele momento
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fmt = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);

@@ -273,6 +273,21 @@ Deno.serve(async (req) => {
       action = `confirm_error: ${rpcErr.message}`;
     } else {
       action = `confirmed (${result?.mode ?? "?"})`;
+      // Pagamento confirmado SEM lastro: a RPC não achou purchase_intent nem
+      // queue_entry (branch legado com 0 linhas). Alguém pagou e NÃO entrou
+      // na fila — não pode morrer no log. Alerta imediato pra resolver na mão.
+      if (result?.mode === "legacy" && Number(result?.updated_rows ?? 0) === 0) {
+        console.error("pagamento confirmado sem intent/entry:", payment.id, payment.externalReference);
+        await alertCleiton(
+          `🚨 Pagamento confirmado SEM entrada na fila\n\n` +
+          `🆔 ${payment.id}\n` +
+          `💰 ${fmtBRL(payment.value ?? 0)}\n` +
+          `📎 ref: ${payment.externalReference ?? "—"}\n\n` +
+          `Não achei purchase_intent nem queue_entry pra esse pagamento. ` +
+          `Confira quem pagou no painel do Asaas e coloque a cliente na fila manualmente.`
+        );
+        action = "confirmed_sem_lastro (alerta enviado)";
+      }
     }
   }
 

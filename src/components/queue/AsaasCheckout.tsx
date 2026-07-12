@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, Copy, CheckCircle, QrCode, CreditCard, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { createCheckout, getIntentStatus } from "@/lib/asaas";
+import { createCheckout, getIntentStatus, savePendingIntent, clearPendingIntent } from "@/lib/asaas";
 import type { CheckoutResponse } from "@/lib/asaas";
 
 // Checkout público — fluxo novo (falhas 3/10 corrigidas):
@@ -67,6 +67,9 @@ export function AsaasCheckout({
         idempotencyKey: `${idempotencyKey.current}_${billing}`,
       });
       setCheckout(result);
+      // Persistimos a intenção: se a cliente fechar o navegador depois de
+      // pagar, a página reencontra a vaga dela ao reabrir (FilaComprar).
+      savePendingIntent(result.intent_id);
       setMethod(billing === "pix" ? "pix" : "card");
     } catch (err) {
       onError(err instanceof Error ? err.message : "Erro ao criar pagamento");
@@ -85,10 +88,12 @@ export function AsaasCheckout({
         if (st.found && st.status === "queued" && st.tracking_token) {
           setConfirmed(true);
           clearInterval(interval);
+          clearPendingIntent();
           onQueued(st.tracking_token);
         }
         if (st.found && (st.status === "cancelled" || st.status === "refunded")) {
           clearInterval(interval);
+          clearPendingIntent();
           onError("Pagamento cancelado. Tente novamente.");
         }
       } catch {
