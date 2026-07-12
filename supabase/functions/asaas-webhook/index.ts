@@ -243,14 +243,16 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
 
 // Alerta urgente pro Cleiton via Evolution claudebot. Best-effort — e SEM
 // fallback de chave: EVOLUTION_KEY ausente ⇒ só loga (falha fechada).
-async function alertCleiton(text: string): Promise<void> {
+// Devolve true SÓ quando a Evolution aceitou o envio (HTTP 2xx) — quem chama
+// loga o resultado real em vez de assumir "enviado".
+async function alertCleiton(text: string): Promise<boolean> {
   const key = Deno.env.get("EVOLUTION_KEY") ?? "";
   if (!key) {
     console.warn("alertCleiton: EVOLUTION_KEY ausente — alerta não enviado:", text.slice(0, 80));
-    return;
+    return false;
   }
   try {
-    await fetch(EVOLUTION_URL, {
+    const r = await fetch(EVOLUTION_URL, {
       method: "POST",
       headers: { "apikey": key, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -259,10 +261,20 @@ async function alertCleiton(text: string): Promise<void> {
         textMessage: { text },
       }),
     });
+    if (!r.ok) {
+      console.error("alertCleiton: Evolution respondeu", r.status, await r.text().catch(() => ""));
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("alertCleiton failed:", err);
+    return false;
   }
 }
+
+// externalReference gerado pelo asaas-checkout é sempre o UUID da
+// purchase_intent. Cobrança manual avulsa do painel Asaas não tem esse formato.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req) => {
   // GET/HEAD = sanity check (front Asaas valida URL).
@@ -339,6 +351,89 @@ Deno.serve(async (req) => {
       action = `confirm_error: ${rpcErr.message}`;
     } else {
       action = `confirmed (${result?.mode ?? "?"})`;
+      // Pagamento confirmado SEM lastro: a RPC não achou purchase_intent nem
+      // queue_entry (branch legado com 0 linhas). SÓ é anomalia real quando a
+      // cobrança NASCEU do asaas-checkout (externalReference = UUID da intent)
+      // e a intent sumiu. Cobrança manual avulsa do painel Asaas não é de fila.
+      // Dedup do alerta é por BANCO (asaas_pending_leads.resolved_reason), não
+      // por tipo de evento: PIX pode chegar SÓ como PAYMENT_RECEIVED (crédito
+      // imediato, sem CONFIRMED antes) — alerta no primeiro evento que chegar
+      // (CONFIRMED ou RECEIVED) e marca a linha; o evento seguinte do MESMO
+      // pagamento encontra a marca e não duplica.
+      if (result?.mode === "legacy" && Number(result?.updated_rows ?? 0) === 0) {
+        const refIsIntent = UUID_RE.test(String(payment.externalReference ?? ""));
+        if (refIsIntent) {
+          const SEM_LASTRO_MARK = "alerted_sem_lastro";
+          const nowIso = new Date().toISOString();
+          // Claim atômico: marca a linha SE ainda não tem a marca. 0 linhas
+          // atualizadas = já alertado por evento anterior OU linha não existe.
+          // status sai de 'pending' (CHECK só aceita os 5 valores da migration;
+          // 'paid_online' é verdade aqui: pagou online, só sem lastro na fila)
+          // — assim o update genérico de lead confirmado abaixo não reescreve
+          // o resolved_reason e a marca sobrevive.
+          const { data: claimed, error: claimErr } = await supa
+            .from("asaas_pending_leads")
+            .update({ status: "paid_online", resolved_at: nowIso, resolved_reason: SEM_LASTRO_MARK })
+            .eq("asaas_payment_id", payment.id)
+            .or(`resolved_reason.is.null,resolved_reason.neq.${SEM_LASTRO_MARK}`)
+            .select("id");
+
+          let shouldAlert = false;
+          if (claimErr) {
+            // Falha de banco: melhor arriscar duplicata do que perder o alerta.
+            console.error("sem_lastro: claim no asaas_pending_leads falhou:", claimErr);
+            shouldAlert = true;
+          } else if ((claimed?.length ?? 0) > 0) {
+            shouldAlert = true; // marcamos agora — 1º evento a chegar
+          } else {
+            // 0 linhas: já marcada OU inexistente. Se nem existe (PAYMENT_CREATED
+            // não chegou), cria via upsert JÁ com a marca e alerta.
+            const { data: existing } = await supa
+              .from("asaas_pending_leads")
+              .select("id")
+              .eq("asaas_payment_id", payment.id)
+              .maybeSingle();
+            if (!existing) {
+              const { data: salonRow } = await supa
+                .from("salons").select("id").order("created_at").limit(1).maybeSingle();
+              if (salonRow?.id) {
+                await supa.from("asaas_pending_leads").upsert({
+                  salon_id: salonRow.id,
+                  asaas_payment_id: payment.id,
+                  value: payment.value ?? null,
+                  billing_type: payment.billingType ?? null,
+                  description: payment.description ?? null,
+                  status: "paid_online",
+                  resolved_at: nowIso,
+                  resolved_reason: SEM_LASTRO_MARK,
+                }, { onConflict: "asaas_payment_id" });
+              }
+              shouldAlert = true;
+            }
+            // existing com marca: alerta já saiu num evento anterior — dedup.
+          }
+
+          if (shouldAlert) {
+            console.error("pagamento confirmado sem intent/entry:", payment.id, payment.externalReference);
+            const alertOk = await alertCleiton(
+              `🚨 Pagamento confirmado SEM entrada na fila\n\n` +
+              `🆔 ${payment.id}\n` +
+              `💰 ${fmtBRL(payment.value ?? 0)}\n` +
+              `📎 ref: ${payment.externalReference ?? "—"}\n\n` +
+              `Não achei purchase_intent nem queue_entry pra esse pagamento. ` +
+              `Verifique no painel do Asaas e no sistema — pagamento de fila confirmado sem registro.`
+            );
+            action = alertOk
+              ? "confirmed_sem_lastro (alerta enviado)"
+              : "confirmed_sem_lastro (alerta FALHOU — ver logs)";
+          } else {
+            action = `confirmed_sem_lastro (${event} — alerta já disparado em evento anterior)`;
+          }
+        } else {
+          // Cobrança manual avulsa (ref não é intent): não é de fila, sem alerta.
+          action = "confirmed (legacy, cobrança avulsa sem fila)";
+        }
+      }
     }
   }
 

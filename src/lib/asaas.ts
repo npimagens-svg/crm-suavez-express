@@ -67,3 +67,39 @@ export async function getIntentStatus(intentId: string): Promise<IntentStatus> {
   if (error) throw new Error(error.message);
   return (data ?? { found: false }) as IntentStatus;
 }
+
+// ── Recuperação pós-fechamento do navegador ─────────────────────────────────
+// Caso real: a cliente paga o PIX e fecha a aba ANTES do polling confirmar.
+// A entrada na fila nasce no SERVIDOR (asaas-webhook) de qualquer jeito; o que
+// se perdia era o vínculo do navegador com ela (o tracking_token só chegava
+// pelo polling). Guardamos o intent_id pendente e, ao reabrir a página,
+// reencontramos o token via fila_intent_status — sem risco de duplicar nada,
+// porque o front nunca insere na fila.
+const PENDING_INTENT_KEY = "fila_pending_intent";
+const PENDING_INTENT_TTL_MS = 24 * 60 * 60 * 1000; // cobrança vence no dia
+
+export function savePendingIntent(intentId: string): void {
+  try {
+    localStorage.setItem(PENDING_INTENT_KEY, JSON.stringify({ intent_id: intentId, ts: Date.now() }));
+  } catch { /* storage indisponível não impede o fluxo */ }
+}
+
+export function clearPendingIntent(): void {
+  try { localStorage.removeItem(PENDING_INTENT_KEY); } catch { /* noop */ }
+}
+
+export function loadPendingIntent(): string | null {
+  try {
+    const raw = localStorage.getItem(PENDING_INTENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { intent_id?: string; ts?: number };
+    if (!parsed.intent_id || !parsed.ts || Date.now() - parsed.ts > PENDING_INTENT_TTL_MS) {
+      clearPendingIntent();
+      return null;
+    }
+    return parsed.intent_id;
+  } catch {
+    clearPendingIntent();
+    return null;
+  }
+}

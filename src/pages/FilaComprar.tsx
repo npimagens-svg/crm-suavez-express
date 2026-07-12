@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import { usePublicQueue } from "@/hooks/usePublicQueue";
 import { useToast } from "@/hooks/use-toast";
 import { AsaasCheckout } from "@/components/queue/AsaasCheckout";
+import { getIntentStatus, loadPendingIntent, clearPendingIntent } from "@/lib/asaas";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 
 type Step = "service" | "data" | "payment" | "confirmation";
@@ -27,6 +28,13 @@ export default function FilaComprar() {
   const [notifyMinutes, setNotifyMinutes] = useState("40");
   const [trackingToken, setTrackingToken] = useState("");
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  // Confirmação vinda da RECUPERAÇÃO: a antecedência real do aviso não é
+  // conhecida aqui (o "40" é só default do select) — a linha do WhatsApp
+  // é omitida nesse caso.
+  const [recoveredConfirmation, setRecoveredConfirmation] = useState(false);
+  // Permite parar o poller de recuperação de fora do effect (ex.: a cliente
+  // iniciou um checkout NOVO — step foi pra "payment").
+  const stopRecoveryRef = useRef<(() => void) | null>(null);
 
   const selectedServices = services.filter((s) => selectedServiceIds.includes(s.id));
   const totalPrice = selectedServices.reduce((sum, s) => sum + Number(s.price || 0), 0);
@@ -81,6 +89,7 @@ export default function FilaComprar() {
   // O WEBHOOK criou a entrada na fila (server-side). Aqui só recebemos o
   // token opaco de acompanhamento e mostramos a posição.
   const handleQueued = async (token: string) => {
+    setRecoveredConfirmation(false); // compra feita AQUI: antecedência conhecida
     setTrackingToken(token);
     try {
       localStorage.setItem("fila_tracking_token", token);
@@ -92,6 +101,103 @@ export default function FilaComprar() {
     } catch { /* posição é cosmética aqui */ }
     setStep("confirmation");
   };
+
+  // RECUPERAÇÃO (caso real: pagou e fechou o navegador antes da confirmação).
+  // A entrada já nasceu no servidor via webhook — aqui reencontramos ela pela
+  // intenção pendente salva no localStorage e entregamos token + posição.
+  // O navegador nunca insere na fila, só consulta. Blindagens:
+  // - RE-LÊ a chave antes de agir: se o AsaasCheckout salvou uma intent NOVA
+  //   na mesma chave, este poller (que carrega a intent da montagem) para sem
+  //   apagar nada nem chamar handleQueued com token velho.
+  // - Valida via fila_minha_situacao que a entrada ainda está ATIVA
+  //   (waiting/checked_in): compra antiga já atendida/cancelada não mostra
+  //   "Você entrou na fila!" — limpa a chave em silêncio e segue o fluxo.
+  // - Teto de polling: 5s nos 2 primeiros minutos, depois 30s, e para de vez
+  //   após ~30min (a chave fica no localStorage pro próximo acesso).
+  useEffect(() => {
+    const pendingIntent = loadPendingIntent();
+    if (!pendingIntent) return;
+    let cancelled = false;
+    let stopped = false;
+    let timer: number | undefined;
+    const startedAt = Date.now();
+
+    const stop = () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+    stopRecoveryRef.current = stop;
+
+    // A chave ainda aponta pra intent que este poller está consultando?
+    // (um checkout novo pode ter sobrescrito — ou limpado — a mesma chave)
+    const stillOurs = () => loadPendingIntent() === pendingIntent;
+
+    const check = async () => {
+      try {
+        if (!stillOurs()) {
+          stop();
+          return;
+        }
+        const st = await getIntentStatus(pendingIntent);
+        if (cancelled || stopped) return;
+        if (st.found && st.status === "queued" && st.tracking_token) {
+          const token = st.tracking_token;
+          // Entrada ainda ATIVA na fila? Compra antiga já atendida/cancelada
+          // não pode reabrir a confirmação nem travar uma compra nova.
+          const { data, error } = await supabase.rpc("fila_minha_situacao", { p_token: token });
+          if (cancelled || stopped) return;
+          // supabase-js v2 NÃO lança: falha transitória vira error preenchido.
+          // Sem stop nem clearPendingIntent — tenta de novo no próximo tick.
+          if (error) return;
+          const situacao = data as { found?: boolean; status?: string; people_ahead?: number } | null;
+          const ativa = !!situacao?.found && ["waiting", "checked_in"].includes(situacao?.status ?? "");
+          if (!stillOurs()) {
+            stop();
+            return;
+          }
+          stop();
+          clearPendingIntent();
+          if (!ativa) return; // fila já resolvida: segue o fluxo normal de compra
+          setTrackingToken(token);
+          try {
+            localStorage.setItem("fila_tracking_token", token);
+          } catch { /* storage indisponível não impede o fluxo */ }
+          setQueuePosition((situacao?.people_ahead ?? 0) + 1);
+          setRecoveredConfirmation(true);
+          setStep("confirmation");
+        } else if (!st.found || st.status === "cancelled" || st.status === "refunded" || st.status === "chargeback") {
+          stop();
+          if (stillOurs()) clearPendingIntent();
+        }
+        // pending/paid: o webhook pode estar a caminho — continua consultando
+      } catch { /* rede oscilou: tenta de novo no próximo tick */ }
+    };
+
+    const tick = async () => {
+      await check();
+      if (cancelled || stopped) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= 30 * 60 * 1000) {
+        stop(); // intent 'pending' não martela a RPC pra sempre
+        return;
+      }
+      timer = window.setTimeout(tick, elapsed < 2 * 60 * 1000 ? 5000 : 30000);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      stop();
+      if (stopRecoveryRef.current === stop) stopRecoveryRef.current = null;
+    };
+    // roda UMA vez, na montagem — a intent pendente é a daquele momento
+  }, []);
+
+  // Checkout NOVO iniciado (step chegou em "payment"): o poller de recuperação
+  // para na hora — a partir daqui a intent da chave é a da compra nova.
+  useEffect(() => {
+    if (step === "payment") stopRecoveryRef.current?.();
+  }, [step]);
 
   const fmt = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -216,9 +322,11 @@ export default function FilaComprar() {
               {queuePosition !== null && (
                 <p className="text-2xl font-bold text-primary">{queuePosition}ª posição</p>
               )}
-              <p className="text-sm text-muted-foreground text-center">
-                Você receberá um aviso no WhatsApp {notifyMinutes} minutos antes do seu atendimento.
-              </p>
+              {!recoveredConfirmation && (
+                <p className="text-sm text-muted-foreground text-center">
+                  Você receberá um aviso no WhatsApp {notifyMinutes} minutos antes do seu atendimento.
+                </p>
+              )}
               <Button className="w-full" onClick={() => navigate(`/fila/acompanhar/${trackingToken}`)}>
                 Acompanhar minha posição
               </Button>
