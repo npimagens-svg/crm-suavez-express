@@ -177,14 +177,16 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
 
 // Alerta urgente pro Cleiton via Evolution claudebot. Best-effort — e SEM
 // fallback de chave: EVOLUTION_KEY ausente ⇒ só loga (falha fechada).
-async function alertCleiton(text: string): Promise<void> {
+// Devolve true SÓ quando a Evolution aceitou o envio (HTTP 2xx) — quem chama
+// loga o resultado real em vez de assumir "enviado".
+async function alertCleiton(text: string): Promise<boolean> {
   const key = Deno.env.get("EVOLUTION_KEY") ?? "";
   if (!key) {
     console.warn("alertCleiton: EVOLUTION_KEY ausente — alerta não enviado:", text.slice(0, 80));
-    return;
+    return false;
   }
   try {
-    await fetch(EVOLUTION_URL, {
+    const r = await fetch(EVOLUTION_URL, {
       method: "POST",
       headers: { "apikey": key, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -193,10 +195,20 @@ async function alertCleiton(text: string): Promise<void> {
         textMessage: { text },
       }),
     });
+    if (!r.ok) {
+      console.error("alertCleiton: Evolution respondeu", r.status, await r.text().catch(() => ""));
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("alertCleiton failed:", err);
+    return false;
   }
 }
+
+// externalReference gerado pelo asaas-checkout é sempre o UUID da
+// purchase_intent. Cobrança manual avulsa do painel Asaas não tem esse formato.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req) => {
   // GET/HEAD = sanity check (front Asaas valida URL).
@@ -274,19 +286,33 @@ Deno.serve(async (req) => {
     } else {
       action = `confirmed (${result?.mode ?? "?"})`;
       // Pagamento confirmado SEM lastro: a RPC não achou purchase_intent nem
-      // queue_entry (branch legado com 0 linhas). Alguém pagou e NÃO entrou
-      // na fila — não pode morrer no log. Alerta imediato pra resolver na mão.
+      // queue_entry (branch legado com 0 linhas). SÓ é anomalia real quando a
+      // cobrança NASCEU do asaas-checkout (externalReference = UUID da intent)
+      // e a intent sumiu. Cobrança manual avulsa do painel Asaas não é de fila.
+      // E só no PAYMENT_CONFIRMED: o PAYMENT_RECEIVED seguinte é a liquidação
+      // do MESMO pagamento — alertar de novo seria duplicata.
       if (result?.mode === "legacy" && Number(result?.updated_rows ?? 0) === 0) {
-        console.error("pagamento confirmado sem intent/entry:", payment.id, payment.externalReference);
-        await alertCleiton(
-          `🚨 Pagamento confirmado SEM entrada na fila\n\n` +
-          `🆔 ${payment.id}\n` +
-          `💰 ${fmtBRL(payment.value ?? 0)}\n` +
-          `📎 ref: ${payment.externalReference ?? "—"}\n\n` +
-          `Não achei purchase_intent nem queue_entry pra esse pagamento. ` +
-          `Confira quem pagou no painel do Asaas e coloque a cliente na fila manualmente.`
-        );
-        action = "confirmed_sem_lastro (alerta enviado)";
+        const refIsIntent = UUID_RE.test(String(payment.externalReference ?? ""));
+        if (refIsIntent && event === "PAYMENT_CONFIRMED") {
+          console.error("pagamento confirmado sem intent/entry:", payment.id, payment.externalReference);
+          const alertOk = await alertCleiton(
+            `🚨 Pagamento confirmado SEM entrada na fila\n\n` +
+            `🆔 ${payment.id}\n` +
+            `💰 ${fmtBRL(payment.value ?? 0)}\n` +
+            `📎 ref: ${payment.externalReference ?? "—"}\n\n` +
+            `Não achei purchase_intent nem queue_entry pra esse pagamento. ` +
+            `Verifique no painel do Asaas e no sistema — pagamento de fila confirmado sem registro.`
+          );
+          action = alertOk
+            ? "confirmed_sem_lastro (alerta enviado)"
+            : "confirmed_sem_lastro (alerta FALHOU — ver logs)";
+        } else if (refIsIntent) {
+          // RECEIVED do mesmo pagamento: já alertado no CONFIRMED.
+          action = "confirmed_sem_lastro (RECEIVED — alerta já disparado no CONFIRMED)";
+        } else {
+          // Cobrança manual avulsa (ref não é intent): não é de fila, sem alerta.
+          action = "confirmed (legacy, cobrança avulsa sem fila)";
+        }
       }
     }
   }
