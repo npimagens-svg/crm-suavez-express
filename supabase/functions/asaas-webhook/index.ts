@@ -15,7 +15,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CLEITON_WA = "5511976847114"; // alvo dos alertas urgentes
-const EVOLUTION_URL = "http://172.18.0.1:8080/message/sendText/claudebot";
+// Evolution precisa ser alcançável do Supabase cloud (IP interno da VPS não é).
+const EVOLUTION_BASE = Deno.env.get("EVOLUTION_URL") ?? "http://72.60.6.168:8080";
+const EVOLUTION_URL = `${EVOLUTION_BASE.replace(/\/$/, "")}/message/sendText/claudebot`;
 
 const fmtBRL = (n: number) =>
   `R$ ${Number(n).toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
