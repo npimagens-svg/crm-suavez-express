@@ -127,12 +127,16 @@ export default function Fila() {
       ? entry.service_ids
       : (entry.service_id ? [entry.service_id] : []);
     if (svcIds.length > 0) {
+      // Assinante do Clube: o serviço do plano entra no preço CHEIO (comissão de 30%
+      // é sobre o valor cheio, regra do Cleiton) e o plano abate via DESCONTO da
+      // comanda no mesmo valor → total a cobrar 0; extras lançados depois somam normal.
+      const isClube = entry.payment_method === "clube";
       const { data: svcs } = await supabase.from("services").select("id, name, price").in("id", svcIds);
       const items = (svcs || []).map((s: any) => ({
         comanda_id: comanda.id,
         service_id: s.id,
         professional_id: entry.assigned_professional_id || null,
-        description: s.name,
+        description: isClube ? `${s.name} — CLUBE (plano)` : s.name,
         item_type: "service",
         quantity: 1,
         unit_price: s.price,
@@ -141,7 +145,14 @@ export default function Fila() {
       if (items.length > 0) {
         await supabase.from("comanda_items").insert(items);
         const total = items.reduce((sum, it) => sum + Number(it.total_price || 0), 0);
-        await supabase.from("comandas").update({ subtotal: total, total }).eq("id", comanda.id);
+        await supabase
+          .from("comandas")
+          .update(
+            isClube
+              ? { subtotal: total, discount: total, total: 0 }
+              : { subtotal: total, total }
+          )
+          .eq("id", comanda.id);
       }
     }
 
