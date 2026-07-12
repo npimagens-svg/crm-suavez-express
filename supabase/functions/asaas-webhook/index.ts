@@ -20,6 +20,69 @@ const EVOLUTION_URL = "http://172.18.0.1:8080/message/sendText/claudebot";
 const fmtBRL = (n: number) =>
   `R$ ${Number(n).toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
 
+// ── Meta Conversions API (CAPI) — Clube da Escova ──
+// Dispara Purchase server-side quando a assinatura é confirmada pelo Asaas.
+// É o sinal confiável de conversão (o Pixel do browser perde a compra porque
+// o pagamento confirma assíncrono, depois que a cliente saiu da página).
+const META_PIXEL_ID = Deno.env.get("META_PIXEL_ID") ?? "376324615024225";
+const META_CAPI_URL = "https://www.nphairexpress.com.br/clube/";
+
+async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// deno-lint-ignore no-explicit-any
+async function sendMetaCapiPurchase(payment: any, reg: any, def: { plano: string }): Promise<string> {
+  const token = Deno.env.get("META_CAPI_TOKEN") ?? "";
+  if (!token) return "capi_sem_token";
+  try {
+    // user_data normalizado + hasheado (SHA-256) conforme exigência da Meta
+    const ud: Record<string, string[]> = {};
+    if (reg.email) ud.em = [await sha256Hex(String(reg.email).trim().toLowerCase())];
+    const digits = String(reg.celular ?? "").replace(/\D/g, "");
+    if (digits) {
+      const withCc = digits.startsWith("55") ? digits : `55${digits}`;
+      ud.ph = [await sha256Hex(withCc)];
+    }
+    if (reg.nome) {
+      const first = String(reg.nome).trim().toLowerCase().split(/\s+/)[0];
+      if (first) ud.fn = [await sha256Hex(first)];
+    }
+
+    const evt = {
+      event_name: "Purchase",
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: String(payment.id), // idempotência + dedup com o Pixel
+      action_source: "website",
+      event_source_url: META_CAPI_URL,
+      user_data: ud,
+      custom_data: {
+        currency: "BRL",
+        value: Number(payment.value) || 0,
+        content_name: "Clube da Escova",
+        content_category: "subscription",
+        content_ids: [def.plano],
+        ...(payment.subscription ? { order_id: String(payment.subscription) } : {}),
+      },
+    };
+
+    const url = `https://graph.facebook.com/v21.0/${META_PIXEL_ID}/events?access_token=${encodeURIComponent(token)}`;
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: [evt] }),
+    });
+    if (r.ok) return "capi_ok";
+    const errText = await r.text().catch(() => "");
+    console.error("capi purchase failed:", r.status, errText.slice(0, 300));
+    return `capi_erro_${r.status}`;
+  } catch (err) {
+    console.error("capi purchase exception:", err);
+    return "capi_exception";
+  }
+}
+
 // ── Clube da Escova: planos identificados pelo valor da cobrança ──
 const CLUBE_PLANOS: Record<string, { plano: string; teto: number; rotulo: string; valor: string }> = {
   "197": { plano: "4x_curto_medio", teto: 4, rotulo: "4 escovas por mês · cabelo curto/médio", valor: "R$ 197/mês" },
@@ -143,6 +206,9 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
     { onConflict: "assinante_id,competencia", ignoreDuplicates: true },
   );
 
+  // CAPI: Purchase server-side pro Meta (best-effort, não bloqueia o fluxo)
+  const capiStatus = await sendMetaCapiPurchase(payment, reg, def);
+
   // E-mail de boas-vindas (só no primeiro pagamento).
   // RESEND_API_KEY: APENAS Supabase Secrets — system_config NÃO é cofre.
   let emailStatus = "sem_email";
@@ -172,7 +238,7 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
     }
   }
 
-  return `clube_ativo (${emailStatus})`;
+  return `clube_ativo (${emailStatus}, ${capiStatus})`;
 }
 
 // Alerta urgente pro Cleiton via Evolution claudebot. Best-effort — e SEM
