@@ -18,7 +18,10 @@ export function estimativaLinhaRetaMin(km: number): number {
 
 export async function tempoAteSalaoMin(origem: { lat: number; lng: number }): Promise<number> {
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${origem.lng},${origem.lat};${SALAO.lng},${SALAO.lat}?overview=false`;
+    // Coordenada arredondada (~1 km): o serviço de rotas não recebe a posição exata da cliente.
+    const lat = origem.lat.toFixed(2);
+    const lng = origem.lng.toFixed(2);
+    const url = `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${SALAO.lng},${SALAO.lat}?overview=false`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const json = await resp.json();
     const seg = json?.routes?.[0]?.duration;
