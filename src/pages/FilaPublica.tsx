@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { GlassCard, Button as NpButton, npAssets } from "@design-system";
+import { Button as NpButton, npAssets } from "@design-system";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Clock, Bell, Crown } from "lucide-react";
+import { Bell, Crown } from "lucide-react";
 import { usePublicQueue } from "@/hooks/usePublicQueue";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import { FilaAviso } from "@/components/queue/FilaAviso";
+import { FilaAgora } from "@/components/queue/FilaAgora";
 
 // Clube da Escova: agora exige OTP (prova de posse do telefone — falha 13).
 // 1) manda o código pro WhatsApp (Edge Function clube-otp);
@@ -43,7 +44,7 @@ function fmtValidoAte(iso?: string | null): string {
 
 export default function FilaPublica() {
   const navigate = useNavigate();
-  const { stats, settings, addLead, fila } = usePublicQueue();
+  const { addLead, fila, painel, services } = usePublicQueue();
   const { toast } = useToast();
 
   const [leadModalOpen, setLeadModalOpen] = useState(false);
@@ -167,10 +168,6 @@ export default function FilaPublica() {
     }
   };
 
-  const inflationFactor = settings?.inflation_factor || 1.7;
-  const displayCount = stats.totalInQueue === 0 ? 0 : Math.ceil(stats.totalInQueue * inflationFactor);
-  const displayMinutes = stats.totalInQueue === 0 ? 0 : Math.ceil(stats.estimatedMinutes * inflationFactor);
-
   const handleLeadSubmit = async () => {
     if (!leadName.trim() || !leadPhone.trim()) {
       toast({ title: "Preencha nome e WhatsApp", variant: "destructive" });
@@ -195,24 +192,7 @@ export default function FilaPublica() {
           <p className="np-caps">Salão sem agendamento</p>
         </header>
 
-        <GlassCard padding={24} className="text-center">
-          <p className="np-caps">Agora no salão</p>
-          <div className="mt-2 flex items-baseline justify-center gap-3">
-            <span className="np-num text-7xl leading-none tabular-nums text-foreground">{displayCount}</span>
-            <span className="text-left text-sm leading-tight text-muted-foreground">
-              {displayCount === 1 ? "pessoa na fila" : "pessoas na fila"}
-            </span>
-          </div>
-          {displayCount > 0 && (
-            <div className="mt-4 inline-flex items-center justify-center gap-2 rounded-full bg-[color:var(--np-surface-inset)] px-4 py-2 text-sm text-muted-foreground">
-              <Clock className="h-4 w-4 text-[color:var(--np-accent-text)]" />
-              <span>Tempo estimado: <strong className="np-num tabular-nums text-foreground">~{displayMinutes} min</strong></span>
-            </div>
-          )}
-          {displayCount === 0 && (
-            <p className="mt-4 font-medium text-[color:var(--np-positive)]">Fila vazia! Atendimento imediato.</p>
-          )}
-        </GlassCard>
+        <FilaAgora painel={painel} services={services} fila={fila} />
 
         <FilaAviso fila={fila} />
 

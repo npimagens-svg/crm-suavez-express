@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/dynamicSupabaseClient";
 import type { QueueStats } from "@/types/queue";
+import type { Painel } from "@/lib/filaPrevisao";
 
 // Hook público da fila — SEM acesso direto a tabelas (falhas 1/2 corrigidas).
 // Tudo vem da RPC fila_public_bootstrap: salão, config não sensível, serviços
@@ -50,6 +51,17 @@ export function usePublicQueue() {
     refetchInterval: 15000,
   });
 
+  // Tudo que está no salão agora (comandas abertas + online sem comanda), anônimo.
+  const painelQuery = useQuery({
+    queryKey: ["fila_public_painel"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("fila_public_painel");
+      if (error) throw error;
+      return data as unknown as Painel;
+    },
+    refetchInterval: 15000,
+  });
+
   const boot = bootstrapQuery.data;
   const salonId = boot?.salon_id ?? null;
 
@@ -86,6 +98,7 @@ export function usePublicQueue() {
     fila,
     stats,
     services: boot?.services ?? [],
+    painel: painelQuery.data ?? null,
     isLoading: bootstrapQuery.isLoading,
     addLead,
   };
