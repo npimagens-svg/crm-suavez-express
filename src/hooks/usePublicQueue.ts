@@ -49,6 +49,10 @@ export function usePublicQueue() {
       return data as unknown as PublicBootstrap;
     },
     refetchInterval: 15000,
+    // página aberta o dia todo (celular/tablet): não congela em aba de fundo e atualiza ao voltar
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   // Tudo que está no salão agora (comandas abertas + online sem comanda), anônimo.
@@ -60,6 +64,10 @@ export function usePublicQueue() {
       return data as unknown as Painel;
     },
     refetchInterval: 15000,
+    // página aberta o dia todo (celular/tablet): não congela em aba de fundo e atualiza ao voltar
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const boot = bootstrapQuery.data;
