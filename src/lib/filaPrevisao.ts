@@ -9,6 +9,8 @@ export interface PainelComanda {
   minutos: number;
   servico: string | null;
   categoria: string | null;
+  /** itens da comanda lançados pra outra profissional (ex.: corte da Neide na comanda da Wanessa) */
+  outras?: { profissional: number | null; minutos: number }[];
 }
 
 export interface PainelAguardando {
@@ -81,14 +83,26 @@ export function calcularPrevisao(painel: Painel, categorias: string[]): Previsao
     const cursor = livreEm.get(c.profissional)!;
     const abertaEm = new Date(c.aberta_em).getTime();
     const inicio = Math.max(abertaEm, cursor);
-    let fim = inicio + c.minutos * MIN;
+    // A outra profissional da comanda fica ocupada com os minutos dela, na ordem das comandas dela.
+    let minutosOutras = 0;
+    for (const o of c.outras ?? []) {
+      if (o.profissional == null || !livreEm.has(o.profissional)) continue;
+      minutosOutras += o.minutos;
+      const ini = Math.max(abertaEm, livreEm.get(o.profissional)!);
+      let f = ini + o.minutos * MIN;
+      if (ini <= agora) f = Math.max(f, agora + MINUTOS_TERMINANDO * MIN);
+      livreEm.set(o.profissional, f);
+    }
+    const fimDona = inicio + c.minutos * MIN;
+    // A cliente sai quando todos os serviços acabam (um depois do outro).
+    let fim = inicio + (c.minutos + minutosOutras) * MIN;
     if (inicio <= agora) {
       fim = Math.max(fim, agora + MINUTOS_TERMINANDO * MIN);
       itens.push({ ordem: abertaEm, item: { situacao: "em_atendimento", servico: c.servico, minutos: Math.ceil((fim - agora) / MIN) } });
     } else {
       itens.push({ ordem: abertaEm, item: { situacao: "aguardando", servico: c.servico, minutos: Math.ceil((inicio - agora) / MIN) } });
     }
-    livreEm.set(c.profissional, fim);
+    livreEm.set(c.profissional, inicio <= agora ? Math.max(fimDona, agora + MINUTOS_TERMINANDO * MIN) : fimDona);
   }
 
   const espera = [...semProfissional, ...painel.aguardando];

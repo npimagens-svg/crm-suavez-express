@@ -92,6 +92,18 @@ describe("calcularPrevisao", () => {
     expect(ninguem.categorias[0]).toEqual({ categoria: CAB, livres: 1, proximaLivreMin: 0 });
   });
 
+  it("item lançado pra outra profissional ocupa ela (corte da Neide na comanda da Wanessa)", () => {
+    const r = calcularPrevisao(painel({
+      profissionais: [
+        { id: 1, categorias: [CAB], presente: true },
+        { id: 2, categorias: [CAB, UNHA], presente: true },
+      ],
+      comandas: [{ profissional: 1, aberta_em: antes(10), minutos: 240, servico: "ALINHAMENTO", categoria: CAB, outras: [{ profissional: 2, minutos: 30 }] }],
+    }), [CAB]);
+    expect(r.itens).toEqual([{ situacao: "em_atendimento", servico: "ALINHAMENTO", minutos: 260 }]);
+    expect(r.categorias[0]).toEqual({ categoria: CAB, livres: 0, proximaLivreMin: 20 });
+  });
+
   it("comanda sem profissional entra como aguardando", () => {
     const r = calcularPrevisao(painel({
       comandas: [{ profissional: null, aberta_em: antes(1), minutos: 40, servico: "X", categoria: UNHA }],

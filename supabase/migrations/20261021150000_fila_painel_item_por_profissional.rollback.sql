@@ -1,0 +1,1 @@
+-- rollback: reaplicar supabase/migrations/20261018120000_fila_public_painel.sql (CREATE OR REPLACE)
