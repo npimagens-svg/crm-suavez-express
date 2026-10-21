@@ -304,7 +304,11 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
           if (row.key === "cashback_enabled") cfg.enabled = row.value !== "false";
           else if (row.key === "cashback_percent" && row.value) cfg.percent = row.value;
           else if (row.key === "cashback_validity_days" && row.value) cfg.validityDays = parseInt(row.value) || 15;
-          else if (row.key === "cashback_min_purchase" && row.value) cfg.minPurchase = parseFloat(row.value) || 100;
+          else if (row.key === "cashback_min_purchase" && row.value) {
+            // "0" = sem compra mínima (não pode cair no padrão de 100)
+            const v = parseFloat(row.value);
+            cfg.minPurchase = Number.isFinite(v) && v >= 0 ? v : 100;
+          }
         }
         setCashbackConfig(cfg);
         setCashbackPercentInput(cfg.percent);
@@ -1884,7 +1888,7 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                   <CardContent className="p-3 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Gift className="h-4 w-4 text-primary" />
-                      Cashback disponivel deste cliente
+                      Cashback e créditos deste cliente
                     </div>
                     {availableCredits.map((credit) => {
                       const minOk = (subtotal || 0) >= Number(credit.min_purchase_amount);
@@ -1905,30 +1909,16 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
                             onClick={async () => {
                               try {
                                 const creditAmt = Number(credit.credit_amount);
-                                // Usa o discount LOCAL como base (nao a prop, que nao se atualiza dentro do modal)
-                                const newDiscount = localDiscount + creditAmt;
-                                const newTotal = Math.max(0, subtotal - newDiscount);
-                                // Marca o credito como usado
-                                const { error: errCredit } = await supabase
-                                  .from("client_credits")
-                                  .update({
-                                    is_used: true,
-                                    used_at: new Date().toISOString(),
-                                    used_in_comanda_id: comanda.id,
-                                  })
-                                  .eq("id", credit.id);
-                                if (errCredit) throw errCredit;
-                                // Atualiza desconto e total da comanda no banco
-                                const { error: errCom } = await supabase
-                                  .from("comandas")
-                                  .update({
-                                    discount: newDiscount,
-                                    total: newTotal,
-                                  })
-                                  .eq("id", comanda.id);
-                                if (errCom) throw errCom;
-                                // Atualiza estado local — refletir na UI imediatamente sem refetch
-                                setLocalDiscount(newDiscount);
+                                // Atômico no banco: marca o crédito usado e soma no desconto na
+                                // mesma transação. O UPDATE direto em client_credits era barrado
+                                // pela RLS na recepção (0 linhas, sem erro) e o crédito ficava reusável.
+                                const { data, error } = await supabase.rpc("rpc_aplicar_credito_cliente", {
+                                  p_comanda: comanda.id,
+                                  p_credit: credit.id,
+                                });
+                                if (error) throw error;
+                                const res = data as { new_discount?: number } | null;
+                                if (typeof res?.new_discount === "number") setLocalDiscount(res.new_discount);
                                 setAvailableCredits((prev) => prev.filter((c) => c.id !== credit.id));
                                 queryClient.invalidateQueries({ queryKey: ["comandas"] });
                                 queryClient.invalidateQueries({ queryKey: ["client-credits"] });
