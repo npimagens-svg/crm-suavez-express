@@ -27,6 +27,7 @@ import { decidirLead, montarAvisoLead, tamanhoFila } from "./leads.ts";
 
 const LINK_FILA = "https://suavezexpress.vercel.app/fila";
 const LEAD_MAX_TENTATIVAS = 3;
+const LEAD_MAX_AVISOS_DIA = 30; // teto de WhatsApp automático de lead por dia (formulário é público)
 
 const OWNER_EMAIL = Deno.env.get("QUEUE_LEADS_EMAIL") ?? "npimagens@gmail.com";
 
@@ -317,9 +318,18 @@ async function avisarLeads(supa: any, salonId: string, out: { leads_notified: nu
     .eq("notified", false)
     .lt("notify_attempts", LEAD_MAX_TENTATIVAS)
     .order("created_at", { ascending: true })
-    .limit(20);
+    .limit(50);
   if (error) throw new Error(`ler leads: ${error.message}`);
   if (!leads || leads.length === 0) return;
+
+  const { count: enviadosHoje } = await supa
+    .from("queue_leads")
+    .select("id", { count: "exact", head: true })
+    .eq("salon_id", salonId)
+    .eq("atendimento_em", hoje)
+    .eq("notify_result", "enviado");
+  let restantes = LEAD_MAX_AVISOS_DIA - (enviadosHoje ?? 0);
+  if (restantes <= 0) return;
 
   const { data: painel, error: painelErr } = await supa.rpc("fila_public_painel");
   if (painelErr) throw new Error(`fila_public_painel: ${painelErr.message}`);
@@ -354,6 +364,8 @@ async function avisarLeads(supa: any, salonId: string, out: { leads_notified: nu
       await marcar(lead.id, decisao);
       continue;
     }
+    if (restantes <= 0) break;
+    restantes--;
     const ok = await sendWhatsApp(String(lead.phone), montarAvisoLead(lead.name, filaAgora, LINK_FILA), "queue-cron lead");
     if (ok) {
       await marcar(lead.id, "enviado");

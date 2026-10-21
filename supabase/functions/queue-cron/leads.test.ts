@@ -45,3 +45,9 @@ Deno.test("mensagem: primeiro nome, acento, singular/plural/livre", () => {
   assertEquals(montarAvisoLead("", 0, link).startsWith("Oi! Você pediu"), true);
   assertEquals(montarAvisoLead("Julia", 0, link).includes("está livre agora"), true);
 });
+
+Deno.test("mensagem: nome com link/símbolo não passa pro texto", () => {
+  const msg = montarAvisoLead("www.golpe.com/pix", 1, "https://x/fila");
+  assertEquals(msg.startsWith("Oi, wwwgolpecompix!"), true);
+  assertEquals(montarAvisoLead("http://a.b", 1, "L").includes("http://a.b"), false);
+});

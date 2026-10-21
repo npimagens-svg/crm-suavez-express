@@ -32,7 +32,8 @@ export function tamanhoFila(painel: { comandas?: unknown[] | null; aguardando?: 
 }
 
 export function montarAvisoLead(nome: string | null | undefined, filaAgora: number, link: string): string {
-  const primeiro = String(nome ?? "").trim().split(/\s+/)[0];
+  // nome vem de formulário público: só letras, até 20 (nada de link ou texto injetado na mensagem)
+  const primeiro = String(nome ?? "").trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, "").slice(0, 20);
   const oi = primeiro ? `Oi, ${primeiro}!` : "Oi!";
   const estado = filaAgora <= 0
     ? "a fila do NP Hair Express está livre agora"
