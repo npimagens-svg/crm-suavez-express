@@ -6,6 +6,9 @@
 //    aberta. notify_sent só é marcado quando o envio de fato SUCEDE.
 // 2) LEADS "ME AVISA QUANDO A FILA DIMINUIR" (queue_leads) — cada lead novo
 //    vira e-mail imediato pro dono (npimagens@gmail.com), com link wa.me.
+// 3) AVISO AUTOMÁTICO DO LEAD (21/10/2026) — só no horário de atendimento: lead do
+//    dia, ainda não avisado, recebe 1 WhatsApp quando a fila (mesmo número da página
+//    pública, fila_public_painel) fica abaixo do que ela pediu. Regra em ./leads.ts.
 // 0) RECONCILIAÇÃO SEM WEBHOOK (10/10/2026) — intent 'pending' com cobrança há
 //    2 min–24 h: consulta o Asaas e, se pago, chama a mesma RPC do asaas-webhook
 //    (webhook_pagamento_confirmado, idempotente). Roda antes do bloqueio de casa
@@ -20,6 +23,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSalonSecrets } from "../_shared/auth.ts";
 import { decidirReconciliacao, mesmoTelefone } from "./reconcilia.ts";
 import { avisarSeForaDoHorario, sendWhatsApp } from "../_shared/whatsapp_fila.ts";
+import { decidirLead, montarAvisoLead, tamanhoFila } from "./leads.ts";
+
+const LINK_FILA = "https://suavezexpress.vercel.app/fila";
+const LEAD_MAX_TENTATIVAS = 3;
 
 const OWNER_EMAIL = Deno.env.get("QUEUE_LEADS_EMAIL") ?? "npimagens@gmail.com";
 
@@ -133,7 +140,7 @@ Deno.serve(async (req) => {
   );
 
   const out = {
-    notified: 0, skipped_no_phone: 0, leads_emailed: 0, errors: 0, skipped_casa_fechada: false,
+    notified: 0, skipped_no_phone: 0, leads_emailed: 0, leads_notified: 0, errors: 0, skipped_casa_fechada: false,
     reconciled: 0, reconcile_errors: 0, reconcile_skipped_ja_na_fila: 0,
   };
 
@@ -286,5 +293,75 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ── 3. Aviso automático do lead (só com o salão em horário de atendimento) ──
+  if (!foraDoHorario && salaoRow?.id) {
+    try {
+      await avisarLeads(supa, salaoRow.id, out);
+    } catch (e) {
+      console.error("queue-cron: aviso de lead erro inesperado", String(e).slice(0, 160));
+      out.errors++;
+    }
+  }
+
   return json(out);
 });
+
+// deno-lint-ignore no-explicit-any
+async function avisarLeads(supa: any, salonId: string, out: { leads_notified: number; errors: number }) {
+  const hoje = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }); // YYYY-MM-DD
+  const { data: leads, error } = await supa
+    .from("queue_leads")
+    .select("id, name, phone, max_queue_size, notify_attempts")
+    .eq("salon_id", salonId)
+    .eq("atendimento_em", hoje)
+    .eq("notified", false)
+    .lt("notify_attempts", LEAD_MAX_TENTATIVAS)
+    .order("created_at", { ascending: true })
+    .limit(20);
+  if (error) throw new Error(`ler leads: ${error.message}`);
+  if (!leads || leads.length === 0) return;
+
+  const { data: painel, error: painelErr } = await supa.rpc("fila_public_painel");
+  if (painelErr) throw new Error(`fila_public_painel: ${painelErr.message}`);
+  const filaAgora = tamanhoFila(painel);
+
+  const { data: naFila } = await supa
+    .from("queue_entries")
+    .select("customer_phone")
+    .eq("salon_id", salonId)
+    .in("status", ["waiting", "checked_in", "in_service"]);
+  // deno-lint-ignore no-explicit-any
+  const telefonesNaFila = (naFila ?? []).map((e: any) => e.customer_phone);
+
+  const { data: avisados } = await supa
+    .from("queue_leads")
+    .select("phone")
+    .eq("salon_id", salonId)
+    .eq("atendimento_em", hoje)
+    .eq("notified", true);
+  // deno-lint-ignore no-explicit-any
+  const telefonesAvisados: string[] = (avisados ?? []).map((l: any) => l.phone);
+
+  const marcar = (id: string, result: string) =>
+    supa.from("queue_leads")
+      .update({ notified: true, notified_at: new Date().toISOString(), notify_result: result })
+      .eq("id", id).eq("notified", false);
+
+  for (const lead of leads) {
+    const decisao = decidirLead(lead, filaAgora, telefonesNaFila, telefonesAvisados);
+    if (decisao === "esperar") continue;
+    if (decisao !== "enviar") {
+      await marcar(lead.id, decisao);
+      continue;
+    }
+    const ok = await sendWhatsApp(String(lead.phone), montarAvisoLead(lead.name, filaAgora, LINK_FILA), "queue-cron lead");
+    if (ok) {
+      await marcar(lead.id, "enviado");
+      telefonesAvisados.push(lead.phone);
+      out.leads_notified++;
+    } else {
+      await supa.from("queue_leads").update({ notify_attempts: (lead.notify_attempts ?? 0) + 1 }).eq("id", lead.id);
+      out.errors++;
+    }
+  }
+}

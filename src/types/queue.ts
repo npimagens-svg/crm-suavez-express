@@ -48,6 +48,9 @@ export interface QueueLead {
   max_queue_size: number;
   notified: boolean;
   created_at: string;
+  atendimento_em?: string | null;
+  notified_at?: string | null;
+  notify_result?: string | null;
 }
 
 export interface QueueLeadInput {

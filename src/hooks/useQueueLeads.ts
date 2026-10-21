@@ -4,6 +4,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import type { QueueLead, QueueLeadInput } from "@/types/queue";
 
+// Dia de hoje em Brasília (YYYY-MM-DD). Lead vale só no dia de atendimento dele
+// (atendimento_em, preenchido no banco): o que não é de hoje some da aba sozinho.
+export const hojeSP = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+
 export function useQueueLeads() {
   const { salonId } = useAuth();
   const queryClient = useQueryClient();
@@ -17,11 +21,14 @@ export function useQueueLeads() {
         .from("queue_leads")
         .select("*")
         .eq("salon_id", salonId)
-        .order("created_at", { ascending: false });
+        .eq("atendimento_em", hojeSP())
+        .order("created_at", { ascending: true });
       if (error) throw error;
       return data as QueueLead[];
     },
     enabled: !!salonId,
+    // atualiza o "há X min" e vira o dia sem recarregar a página
+    refetchInterval: 60_000,
   });
 
   const addLeadMutation = useMutation({
@@ -42,12 +49,12 @@ export function useQueueLeads() {
 
   const markNotifiedMutation = useMutation({
     mutationFn: async (leadId: string) => {
-      const { error } = await supabase.from("queue_leads").update({ notified: true }).eq("id", leadId);
+      const { error } = await supabase.from("queue_leads").update({ notified: true, notified_at: new Date().toISOString(), notify_result: "manual" }).eq("id", leadId);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue_leads", salonId] });
-      toast({ title: "Lead notificada!" });
+      toast({ title: "Cliente avisada!" });
     },
   });
 
@@ -62,7 +69,8 @@ export function useQueueLeads() {
   });
 
   const pendingLeads = (query.data || []).filter((l) => !l.notified);
-  const notifiedLeads = (query.data || []).filter((l) => l.notified);
+  // avisadas de hoje: a mais recente primeiro
+  const notifiedLeads = (query.data || []).filter((l) => l.notified).reverse();
 
   return {
     leads: query.data || [],

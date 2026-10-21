@@ -21,7 +21,8 @@ async function sendWhatsApp(phone: string, message: string, salonId: string): Pr
       console.error("WhatsApp send failed:", error);
       return false;
     }
-    return !!data?.messageId;
+    // zapi-proxy (Evolution) devolve { sent, status, result }; não existe messageId.
+    return data?.sent === true;
   } catch (error) {
     console.error("WhatsApp send failed:", error);
     return false;
@@ -102,12 +103,12 @@ export async function notifyQueueEntry(
 export async function notifyLead(
   salonId: string,
   lead: { phone: string; name: string },
-  currentQueueSize: number,
   queueUrl: string
 ): Promise<boolean> {
+  const primeiro = lead.name.trim().split(/\s+/)[0];
   return await notifyClient({
     phone: lead.phone,
-    message: `${lead.name}, a fila do NP Hair ta rapidinha agora! So ${currentQueueSize} pessoa(s). Quer entrar? ${queueUrl}`,
+    message: `Oi${primeiro ? `, ${primeiro}` : ""}! Você pediu pra gente avisar quando a fila do NP Hair Express diminuísse: ela está andando agora. Pra garantir sua vez, entra por aqui: ${queueUrl}`,
     salonId,
   });
 }

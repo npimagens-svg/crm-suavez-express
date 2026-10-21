@@ -173,6 +173,12 @@ export default function FilaPublica() {
       toast({ title: "Preencha nome e WhatsApp", variant: "destructive" });
       return;
     }
+    // DDD + número (10 ou 11 dígitos), aceitando +55 na frente
+    const digitos = leadPhone.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+    if (digitos.length < 10 || digitos.length > 11) {
+      toast({ title: "Confira o WhatsApp com DDD", variant: "destructive" });
+      return;
+    }
     try {
       await addLead({ name: leadName.trim(), phone: leadPhone.trim(), max_queue_size: parseInt(leadMaxQueue) });
       toast({ title: "Pronto! Vamos te avisar quando a fila diminuir." });

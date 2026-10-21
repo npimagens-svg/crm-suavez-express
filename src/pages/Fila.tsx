@@ -20,6 +20,28 @@ import type { QueueEntry } from "@/types/queue";
 
 const SITE_URL = window.location.origin;
 
+const horaSP = (iso: string) =>
+  new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+
+// "entrou às 12:21 (há 2h10)"; pedido feito em outro dia (depois do fechamento) mostra a data.
+function entrouEm(iso: string): string {
+  const d = new Date(iso);
+  const dia = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+  const hoje = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+  if (dia !== hoje) return `entrou em ${dia} às ${horaSP(iso)}`;
+  const min = Math.max(0, Math.floor((Date.now() - d.getTime()) / 60000));
+  const ha = min < 60 ? `${min} min` : `${Math.floor(min / 60)}h${String(min % 60).padStart(2, "0")}`;
+  return `entrou às ${horaSP(iso)} (há ${ha})`;
+}
+
+const RESULTADO_AVISO: Record<string, string> = {
+  enviado: "Avisada automático",
+  manual: "Avisada pela recepção",
+  ja_na_fila: "Já estava na fila",
+  duplicado: "Pedido repetido",
+  telefone_invalido: "Telefone inválido",
+};
+
 export default function Fila() {
   const navigate = useNavigate();
   const { salonId } = useAuth();
@@ -232,13 +254,12 @@ export default function Fila() {
 
   const handleNotifyLead = async (lead: { id: string; phone: string; name: string }) => {
     if (!salonId) return;
-    const sent = await notifyLead(salonId, lead, stats.totalInQueue, `${SITE_URL}/fila`);
+    const sent = await notifyLead(salonId, lead, `${SITE_URL}/fila`);
     if (sent) {
       markNotified(lead.id);
       toast({ title: "WhatsApp enviado!" });
     } else {
-      // Z-API não configurada neste salão → não assusta a recepção com erro vermelho.
-      toast({ title: "Notificação por WhatsApp não está ativa aqui." });
+      toast({ title: "Não consegui enviar o WhatsApp agora. Tente de novo em instantes.", variant: "destructive" });
     }
   };
 
@@ -348,28 +369,38 @@ export default function Fila() {
 
           <TabsContent value="leads" className="mt-4">
             {pendingLeads.length === 0 && notifiedLeads.length === 0 ? (
-              <GlassCard><EmptyState icon={Bell} title="Nenhum lead" /></GlassCard>
+              <GlassCard><EmptyState icon={Bell} title="Nenhum pedido de aviso hoje" /></GlassCard>
             ) : (
               <div className="space-y-3">
+                {pendingLeads.length > 0 && (
+                  <p className="text-sm font-semibold text-muted-foreground">Aguardando aviso · o WhatsApp sai sozinho quando a fila ficar menor que o pedido</p>
+                )}
                 {pendingLeads.map((lead) => (
                   <GlassCard key={lead.id} padding={16}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-semibold text-foreground">{lead.name}</p>
-                        <p className="text-sm text-muted-foreground tabular-nums">{lead.phone} · Quer fila &lt; {lead.max_queue_size}</p>
+                        <p className="text-sm text-muted-foreground tabular-nums">{lead.phone} · quer fila com menos de {lead.max_queue_size}</p>
+                        <p className="text-sm text-muted-foreground tabular-nums">{entrouEm(lead.created_at)}</p>
                       </div>
-                      <Button icon={Bell} onClick={() => handleNotifyLead(lead)}>Notificar</Button>
+                      <Button variant="secondary" icon={Bell} onClick={() => handleNotifyLead(lead)}>Avisar agora</Button>
                     </div>
                   </GlassCard>
                 ))}
+                {notifiedLeads.length > 0 && (
+                  <p className="pt-2 text-sm font-semibold text-muted-foreground">Avisadas hoje</p>
+                )}
                 {notifiedLeads.map((lead) => (
                   <GlassCard key={lead.id} padding={16} className="opacity-60">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-semibold text-foreground">{lead.name}</p>
-                        <p className="text-sm text-muted-foreground tabular-nums">{lead.phone}</p>
+                        <p className="text-sm text-muted-foreground tabular-nums">{lead.phone} · {entrouEm(lead.created_at)}</p>
                       </div>
-                      <Badge tone="neutral">Notificada</Badge>
+                      <Badge tone="neutral">
+                        {RESULTADO_AVISO[lead.notify_result ?? ""] ?? "Avisada"}
+                        {lead.notified_at ? ` às ${horaSP(lead.notified_at)}` : ""}
+                      </Badge>
                     </div>
                   </GlassCard>
                 ))}
