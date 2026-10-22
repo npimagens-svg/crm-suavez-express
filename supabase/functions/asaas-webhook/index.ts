@@ -16,7 +16,8 @@
 //           --project-ref ewxiaxsmohxuabcmxuyc
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { novoStatusClube, temCicloAtivo } from "./status_clube.ts";
-import { avisarSeForaDoHorario } from "../_shared/whatsapp_fila.ts";
+import { avisarSeForaDoHorario, sendWhatsApp } from "../_shared/whatsapp_fila.ts";
+import { AVISO_ASSINATURA_PARA, montarAvisoNovaAssinatura } from "./aviso_assinatura.ts";
 
 const CLEITON_WA = "5511976847114"; // alvo dos alertas urgentes
 // Evolution precisa ser alcançável do Supabase cloud (IP interno da VPS não é).
@@ -275,7 +276,7 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
   // total = teto do plano. Idempotente pelo id do pagamento (retry não cria 2º ciclo).
   const inicio = new Date();
   const fim = new Date(inicio.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const { error: cicloErr } = await supa.from("clube_creditos").upsert(
+  const { data: cicloNovo, error: cicloErr } = await supa.from("clube_creditos").upsert(
     {
       assinante_id: reg.id,
       competencia: inicio.toISOString().slice(0, 7),
@@ -284,7 +285,7 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
       origem: def.origem, asaas_payment_id: payment.id ?? null,
     },
     { onConflict: "asaas_payment_id", ignoreDuplicates: true },
-  );
+  ).select("id");
   if (cicloErr) console.error("clube: ciclo não criado:", cicloErr);
 
   // Mensalidade no financeiro do dia (income, categoria Clube da Escova).
@@ -343,7 +344,48 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
     }
   }
 
-  return `clube_ativo (${emailStatus}, ${capiStatus})`;
+  // 22/10/2026: aviso pro Cleiton a cada assinatura NOVA aprovada. Nova = o ciclo foi criado
+  // agora (retry e PAYMENT_RECEIVED do mesmo pagamento não reenviam) e é o 1º desta origem
+  // pra assinante (renovação mensal não avisa). Best-effort.
+  let avisoStatus = "aviso_skip";
+  if (cicloNovo && cicloNovo.length > 0) {
+    // Assinantes de antes de 16/09 têm o 1º ciclo como backfill/legado: a renovação delas não é nova.
+    const origens = def.origem === "asaas_pagamento"
+      ? ["asaas_pagamento", "asaas_assinatura_backfill", "legado_manual"]
+      : [def.origem];
+    const { count } = await supa.from("clube_creditos")
+      .select("id", { count: "exact", head: true })
+      .eq("assinante_id", reg.id).in("origem", origens);
+    if (count === 1) {
+      // Recebeu a mensagem do carrinho (clube_recuperar_abandono) nos últimos 3 dias = ganhou hidratação.
+      const { data: recuperadas } = await supa.from("clube_leads").select("whatsapp, email")
+        .gt("recuperacao_enviada_em", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
+      const oito = String(reg.celular ?? "").replace(/\D/g, "").slice(-8);
+      const mail = String(reg.email ?? "").trim().toLowerCase();
+      const hidratacao = (recuperadas ?? []).some((l: { whatsapp: string | null; email: string | null }) =>
+        (oito.length === 8 && String(l.whatsapp ?? "").replace(/\D/g, "").slice(-8) === oito) ||
+        (mail !== "" && String(l.email ?? "").trim().toLowerCase() === mail)
+      );
+      const aviso = montarAvisoNovaAssinatura(reg, def, new Date(), hidratacao);
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      const r = resendKey
+        ? await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: "Clube da Escova · NP Hair Express <clube@nphairexpress.com.br>",
+            to: AVISO_ASSINATURA_PARA,
+            subject: aviso.subject,
+            html: aviso.html,
+          }),
+        }).catch(() => null)
+        : null;
+      const wa = await sendWhatsApp(CLEITON_WA, aviso.whatsapp, "clube-aviso");
+      avisoStatus = `aviso_email_${r?.ok ? "ok" : "falhou"}_wa_${wa ? "ok" : "falhou"}`;
+    }
+  }
+
+  return `clube_ativo (${emailStatus}, ${capiStatus}, ${avisoStatus})`;
 }
 
 // Alerta urgente pro Cleiton via Evolution claudebot. Best-effort — e SEM

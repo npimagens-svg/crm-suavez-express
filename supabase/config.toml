@@ -15,6 +15,9 @@ verify_jwt = false
 [functions.asaas-webhook]
 verify_jwt = false
 
+[functions.clube-whats]
+verify_jwt = false
+
 [functions.zapi-proxy]
 verify_jwt = false
 
