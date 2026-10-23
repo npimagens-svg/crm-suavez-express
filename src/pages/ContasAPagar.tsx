@@ -53,8 +53,14 @@ function brl(v: number | string | null | undefined) {
 
 function formatDate(s: string | null | undefined) {
   if (!s) return "—";
-  // datas ISO sem hora — interpretar como meio-dia pra não deslocar fuso
-  return new Date(s + (s.length === 10 ? "T12:00:00" : "")).toLocaleDateString("pt-BR");
+  // datas ISO sem hora — interpretar como meio-dia pra não deslocar fuso.
+  // paid_at é timestamptz gravado à meia-noite UTC da data escolhida: vale só a parte da data.
+  return new Date(s.slice(0, 10) + "T12:00:00").toLocaleDateString("pt-BR");
+}
+
+// Data do pagamento (YYYY-MM-DD) como foi escolhida no "Marcar como paga"
+function paidDate(p: AccountPayable) {
+  return p.paid_at ? p.paid_at.slice(0, 10) : null;
 }
 
 function iso(d: Date) {
@@ -108,6 +114,7 @@ export default function ContasAPagar() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
+  const [dateField, setDateField] = useState<"due" | "paid">("due");
 
   // Stats sempre do panorama completo (não afetados pelos filtros da lista)
   const stats = useMemo(() => {
@@ -128,13 +135,15 @@ export default function ContasAPagar() {
     };
   }, [payables]);
 
-  // Lista filtrada (status + período por vencimento + busca)
+  // Lista filtrada (status + período por vencimento ou por pagamento + busca)
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return payables.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
-      if (dateFrom && p.due_date < dateFrom) return false;
-      if (dateTo && p.due_date > dateTo) return false;
+      const d = dateField === "paid" ? paidDate(p) : p.due_date;
+      if ((dateFrom || dateTo) && !d) return false;
+      if (dateFrom && d! < dateFrom) return false;
+      if (dateTo && d! > dateTo) return false;
       if (q) {
         const hit =
           p.description.toLowerCase().includes(q) ||
@@ -146,7 +155,7 @@ export default function ContasAPagar() {
       }
       return true;
     });
-  }, [payables, search, statusFilter, dateFrom, dateTo]);
+  }, [payables, search, statusFilter, dateFrom, dateTo, dateField]);
 
   const filteredTotal = useMemo(
     () => filtered.reduce((s, p) => s + Number(p.valor_original), 0),
@@ -154,7 +163,8 @@ export default function ContasAPagar() {
   );
 
   const hasPeriod = !!(dateFrom || dateTo);
-  const hasFilters = statusFilter !== "all" || hasPeriod || !!search.trim();
+  const hasFilters = statusFilter !== "all" || hasPeriod || !!search.trim() || dateField !== "due";
+  const dateFieldLabel = dateField === "paid" ? "Pagamento" : "Vencimento";
 
   const presetThisMonth = () => {
     const d = new Date();
@@ -172,13 +182,14 @@ export default function ContasAPagar() {
     setStatusFilter("all");
     setDateFrom("");
     setDateTo("");
+    setDateField("due");
     setSearch("");
   };
 
   const reportSubtitle = () => {
     const st = STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? "Todas";
     const per = hasPeriod
-      ? `Vencimento de ${dateFrom ? formatDate(dateFrom) : "início"} até ${dateTo ? formatDate(dateTo) : "fim"}`
+      ? `${dateFieldLabel} de ${dateFrom ? formatDate(dateFrom) : "início"} até ${dateTo ? formatDate(dateTo) : "fim"}`
       : "Todo o período";
     return `Status: ${st}  ·  ${per}`;
   };
@@ -374,7 +385,19 @@ export default function ContasAPagar() {
                 </Select>
               </div>
               <div className="w-full sm:w-40">
-                <Label className="text-xs text-muted-foreground">Vencimento de</Label>
+                <Label className="text-xs text-muted-foreground">Filtrar período por</Label>
+                <Select value={dateField} onValueChange={(v) => setDateField(v as "due" | "paid")}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="due">Vencimento</SelectItem>
+                    <SelectItem value="paid">Pagamento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-40">
+                <Label className="text-xs text-muted-foreground">{dateFieldLabel} de</Label>
                 <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="mt-1" />
               </div>
               <div className="w-full sm:w-40">
@@ -385,7 +408,9 @@ export default function ContasAPagar() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground">Atalhos:</span>
               <Button variant="secondary" size="sm" className="h-10" onClick={presetThisMonth}>Mês atual</Button>
-              <Button variant="secondary" size="sm" className="h-10" onClick={presetNext30}>Próx. 30 dias</Button>
+              {dateField === "due" && (
+                <Button variant="secondary" size="sm" className="h-10" onClick={presetNext30}>Próx. 30 dias</Button>
+              )}
               {hasFilters && (
                 <Button variant="ghost" size="sm" onClick={clearAll}>
                   <X className="h-3.5 w-3.5 mr-1" /> Limpar filtros
