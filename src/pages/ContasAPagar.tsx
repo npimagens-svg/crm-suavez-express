@@ -45,6 +45,8 @@ import { Plus, Loader2, MoreVertical, CheckCircle2, Pencil, XCircle, Trash2, Sea
 import { useAccountsPayable, AccountPayable, PayableInput, MarkAsPaidInput } from "@/hooks/useAccountsPayable";
 import { PayableModal } from "@/components/payable/PayableModal";
 import { MarkAsPaidModal } from "@/components/payable/MarkAsPaidModal";
+import { useCommissionPayments } from "@/hooks/useCommissionPayments";
+import { useProfessionals } from "@/hooks/useProfessionals";
 
 function brl(v: number | string | null | undefined) {
   const n = Number(v ?? 0);
@@ -65,6 +67,16 @@ function paidDate(p: AccountPayable) {
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10);
+}
+
+// Comissão paga na tela Comissões aparece aqui como conta paga, só para leitura
+const COMISSAO_PREFIX = "comissao-";
+function isCommission(p: AccountPayable) {
+  return p.id.startsWith(COMISSAO_PREFIX);
+}
+// commission_payments.paid_at tem hora de verdade: a data é a de São Paulo
+function spDate(s: string) {
+  return new Date(s).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
 }
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -116,13 +128,54 @@ export default function ContasAPagar() {
   const [dateTo, setDateTo] = useState<string>("");
   const [dateField, setDateField] = useState<"due" | "paid">("due");
 
+  const { payments: commissionPayments } = useCommissionPayments();
+  const { professionals } = useProfessionals();
+  const podeVerComissoes = pode("comissao.ver_todas");
+
+  // Contas + comissões pagas (as comissões continuam sendo lançadas e estornadas na tela Comissões)
+  const allPayables = useMemo(() => {
+    if (!podeVerComissoes) return payables;
+    const nome = new Map(professionals.map((pr) => [pr.id, (pr.name ?? "").trim()]));
+    const comissoes: AccountPayable[] = commissionPayments.map((c) => {
+      const dia = spDate(c.paid_at);
+      return {
+        id: `${COMISSAO_PREFIX}${c.id}`,
+        salon_id: c.salon_id,
+        supplier_id: null,
+        nf_numero: null,
+        nf_serie: null,
+        nf_chave: null,
+        parcela: 1,
+        total_parcelas: 1,
+        valor_original: Number(c.total_amount),
+        valor_pago: Number(c.total_amount),
+        juros: 0,
+        desconto: 0,
+        emissao: null,
+        due_date: dia,
+        paid_at: dia,
+        status: "paid",
+        description: `Comissão ${nome.get(c.professional_id) || "profissional"} (${formatDate(c.period_start)} a ${formatDate(c.period_end)})`,
+        category: "Comissões",
+        payment_method: c.payment_method,
+        bank_account_id: null,
+        financial_transaction_id: c.financial_transaction_id,
+        notes: c.notes,
+        created_at: c.created_at,
+        updated_at: c.created_at,
+        supplier: null,
+      };
+    });
+    return [...payables, ...comissoes].sort((a, b) => a.due_date.localeCompare(b.due_date));
+  }, [payables, commissionPayments, professionals, podeVerComissoes]);
+
   // Stats sempre do panorama completo (não afetados pelos filtros da lista)
   const stats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    const overdue = payables.filter((p) => p.status === "overdue");
-    const pending = payables.filter((p) => p.status === "pending");
+    const overdue = allPayables.filter((p) => p.status === "overdue");
+    const pending = allPayables.filter((p) => p.status === "pending");
     const todayDue = pending.filter((p) => p.due_date === today);
-    const paid30d = payables.filter(
+    const paid30d = allPayables.filter(
       (p) => p.status === "paid" && p.paid_at && new Date(p.paid_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     );
     const sum = (arr: AccountPayable[], k: "valor_original" | "valor_pago" = "valor_original") =>
@@ -133,12 +186,12 @@ export default function ContasAPagar() {
       todayDue: { total: sum(todayDue), count: todayDue.length },
       paid30d: { total: sum(paid30d, "valor_pago") },
     };
-  }, [payables]);
+  }, [allPayables]);
 
   // Lista filtrada (status + período por vencimento ou por pagamento + busca)
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return payables.filter((p) => {
+    return allPayables.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       const d = dateField === "paid" ? paidDate(p) : p.due_date;
       if ((dateFrom || dateTo) && !d) return false;
@@ -155,7 +208,7 @@ export default function ContasAPagar() {
       }
       return true;
     });
-  }, [payables, search, statusFilter, dateFrom, dateTo, dateField]);
+  }, [allPayables, search, statusFilter, dateFrom, dateTo, dateField]);
 
   const filteredTotal = useMemo(
     () => filtered.reduce((s, p) => s + Number(p.valor_original), 0),
@@ -538,6 +591,7 @@ function PayablesTable({ items, total, onPay, onEdit, onCancel, onDelete, isLoad
                   <StatusBadge status={p.status} />
                 </TableCell>
                 <TableCell>
+                  {!isCommission(p) && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-11 w-11">
@@ -596,6 +650,7 @@ function PayablesTable({ items, total, onPay, onEdit, onCancel, onDelete, isLoad
                       </AlertDialog>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
