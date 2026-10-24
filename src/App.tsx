@@ -43,6 +43,7 @@ const ClubeAdmin = lazy(() => import("./pages/ClubeAdmin"));
 const Pendencias = lazy(() => import("@/pages/Pendencias"));
 const Fechamentos = lazy(() => import("@/pages/Fechamentos"));
 const ContasAPagar = lazy(() => import("@/pages/ContasAPagar"));
+const Entradas = lazy(() => import("@/pages/Entradas"));
 // Vitrine do design system (redesign): fora do menu, sem gate nesta branch.
 const DesignSystemShowcase = lazy(() => import("@/pages/DesignSystemShowcase"));
 
@@ -159,6 +160,7 @@ function AppRoutes() {
         <Route path="/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
         <Route path="/financeiro/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
         <Route path="/financeiro/contas-a-pagar" element={<ProtectedRoute><ContasAPagar /></ProtectedRoute>} />
+        <Route path="/financeiro/entradas" element={<ProtectedRoute><Entradas /></ProtectedRoute>} />
         <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
         <Route path="/estoque/*" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
         <Route path="/marketing" element={<ProtectedRoute><Marketing /></ProtectedRoute>} />
@@ -228,6 +230,7 @@ function AppRoutes() {
       <Route path="/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
       <Route path="/financeiro/comissoes" element={<ProtectedRoute><Comissoes /></ProtectedRoute>} />
       <Route path="/financeiro/contas-a-pagar" element={<ProtectedRoute><ContasAPagar /></ProtectedRoute>} />
+      <Route path="/financeiro/entradas" element={<ProtectedRoute><Entradas /></ProtectedRoute>} />
       <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
       <Route path="/estoque/*" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
       <Route path="/marketing" element={<ProtectedRoute><Marketing /></ProtectedRoute>} />

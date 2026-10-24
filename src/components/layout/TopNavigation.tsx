@@ -39,6 +39,7 @@ export const navItems: NavItem[] = [
       { title: "Comandas", url: "/comandas" },
       { title: "Comissões", url: "/financeiro/comissoes" },
       { title: "Contas a Pagar", url: "/financeiro/contas-a-pagar" },
+      { title: "Entradas", url: "/financeiro/entradas" },
       { title: "Por gateway", url: "/financeiro/por-gateway" },
     ]
   },

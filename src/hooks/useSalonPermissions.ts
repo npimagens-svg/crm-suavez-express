@@ -31,7 +31,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "comissao.editar": "Editar comissões (bônus, desconto, pagamento, regras)",
   "ficha.editar_propria_contato": "Editar contato e endereço da própria ficha",
   "ficha.editar_qualquer": "Editar qualquer ficha de profissional",
-  "despesas.lancar": "Lançar despesas e contas a pagar",
+  "despesas.lancar": "Lançar despesas, contas a pagar e entradas",
   "dados_bancarios.editar_propria": "Editar os próprios dados bancários",
   "dados_bancarios.editar_qualquer": "Editar dados bancários de qualquer profissional",
   "cliente.excluir": "Excluir cliente",
