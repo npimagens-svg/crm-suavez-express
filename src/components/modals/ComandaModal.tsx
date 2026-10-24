@@ -1242,6 +1242,19 @@ export function ComandaModal({ comanda, open, onClose, professionals, services, 
 
       // ---- Daqui pra baixo só efeito NÃO crítico: a comanda já está fechada. ----
 
+      // 24/10/2026: aviso "você é a próxima" pra quem está esperando na fila. A edge
+      // queue-next já existia, mas só era chamada por um caminho de fechamento que
+      // nenhuma tela usa (useComandas.closeComanda) — nunca tinha disparado.
+      if (salonId && comanda.professional_id) {
+        try {
+          await supabase.functions.invoke("queue-next", {
+            body: { salonId, professionalId: comanda.professional_id },
+          });
+        } catch (queueErr) {
+          console.error("Erro ao avisar a próxima da fila:", queueErr);
+        }
+      }
+
       // Deduct stock for all services in the comanda
       const serviceItems = editableItems
         .filter(item => item.service_id)
