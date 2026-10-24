@@ -46,6 +46,7 @@ import { useAccountsPayable, AccountPayable, PayableInput, MarkAsPaidInput } fro
 import { PayableModal } from "@/components/payable/PayableModal";
 import { MarkAsPaidModal } from "@/components/payable/MarkAsPaidModal";
 import { useCommissionPayments } from "@/hooks/useCommissionPayments";
+import { useCommissionAdjustments } from "@/hooks/useCommissionAdjustments";
 import { useProfessionals } from "@/hooks/useProfessionals";
 
 function brl(v: number | string | null | undefined) {
@@ -69,7 +70,7 @@ function iso(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-// Comissão paga na tela Comissões aparece aqui como conta paga, só para leitura
+// Comissão paga e adiantamento lançados na tela Comissões aparecem aqui como conta paga, só para leitura
 const COMISSAO_PREFIX = "comissao-";
 function isCommission(p: AccountPayable) {
   return p.id.startsWith(COMISSAO_PREFIX);
@@ -129,45 +130,59 @@ export default function ContasAPagar() {
   const [dateField, setDateField] = useState<"due" | "paid">("due");
 
   const { payments: commissionPayments } = useCommissionPayments();
+  const { adjustments: commissionAdjustments } = useCommissionAdjustments();
   const { professionals } = useProfessionals();
   const podeVerComissoes = pode("comissao.ver_todas");
 
-  // Contas + comissões pagas (as comissões continuam sendo lançadas e estornadas na tela Comissões)
+  // Contas + comissões pagas + adiantamentos (desconto na comissão com "adiant" na descrição).
+  // Os dois últimos continuam sendo lançados e estornados na tela Comissões.
   const allPayables = useMemo(() => {
     if (!podeVerComissoes) return payables;
     const nome = new Map(professionals.map((pr) => [pr.id, (pr.name ?? "").trim()]));
-    const comissoes: AccountPayable[] = commissionPayments.map((c) => {
-      const dia = spDate(c.paid_at);
-      return {
-        id: `${COMISSAO_PREFIX}${c.id}`,
-        salon_id: c.salon_id,
-        supplier_id: null,
-        nf_numero: null,
-        nf_serie: null,
-        nf_chave: null,
-        parcela: 1,
-        total_parcelas: 1,
-        valor_original: Number(c.total_amount),
-        valor_pago: Number(c.total_amount),
-        juros: 0,
-        desconto: 0,
-        emissao: null,
-        due_date: dia,
-        paid_at: dia,
-        status: "paid",
-        description: `Comissão ${nome.get(c.professional_id) || "profissional"} (${formatDate(c.period_start)} a ${formatDate(c.period_end)})`,
-        category: "Comissões",
-        payment_method: c.payment_method,
-        bank_account_id: null,
-        financial_transaction_id: c.financial_transaction_id,
-        notes: c.notes,
-        created_at: c.created_at,
-        updated_at: c.created_at,
-        supplier: null,
-      };
+    const linhaPaga = (id: string, salonId: string, dia: string, valor: number, description: string,
+                       extra: Partial<AccountPayable>): AccountPayable => ({
+      id: `${COMISSAO_PREFIX}${id}`,
+      salon_id: salonId,
+      supplier_id: null,
+      nf_numero: null,
+      nf_serie: null,
+      nf_chave: null,
+      parcela: 1,
+      total_parcelas: 1,
+      valor_original: valor,
+      valor_pago: valor,
+      juros: 0,
+      desconto: 0,
+      emissao: null,
+      due_date: dia,
+      paid_at: dia,
+      status: "paid",
+      description,
+      category: "Comissões",
+      payment_method: null,
+      bank_account_id: null,
+      financial_transaction_id: null,
+      notes: null,
+      created_at: dia,
+      updated_at: dia,
+      supplier: null,
+      ...extra,
     });
-    return [...payables, ...comissoes].sort((a, b) => a.due_date.localeCompare(b.due_date));
-  }, [payables, commissionPayments, professionals, podeVerComissoes]);
+    const comissoes = commissionPayments.map((c) =>
+      linhaPaga(c.id, c.salon_id, spDate(c.paid_at), Number(c.total_amount),
+        `Comissão ${nome.get(c.professional_id) || "profissional"} (${formatDate(c.period_start)} a ${formatDate(c.period_end)})`,
+        { payment_method: c.payment_method, financial_transaction_id: c.financial_transaction_id, notes: c.notes,
+          created_at: c.created_at, updated_at: c.created_at })
+    );
+    const adiantamentos = commissionAdjustments
+      .filter((a) => a.adjustment_type === "discount" && /adiant/i.test(a.description ?? ""))
+      .map((a) =>
+        linhaPaga(`adiant-${a.id}`, a.salon_id, a.adjustment_date, Number(a.amount),
+          `Adiantamento ${nome.get(a.professional_id) || "profissional"}`,
+          { notes: a.description, created_at: a.created_at, updated_at: a.created_at })
+      );
+    return [...payables, ...comissoes, ...adiantamentos].sort((a, b) => a.due_date.localeCompare(b.due_date));
+  }, [payables, commissionPayments, commissionAdjustments, professionals, podeVerComissoes]);
 
   // Stats sempre do panorama completo (não afetados pelos filtros da lista)
   const stats = useMemo(() => {
