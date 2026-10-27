@@ -393,7 +393,8 @@ async function handleClube(supa: any, event: string, payment: any): Promise<stri
 // Devolve true SÓ quando a Evolution aceitou o envio (HTTP 2xx) — quem chama
 // loga o resultado real em vez de assumir "enviado".
 async function alertCleiton(text: string): Promise<boolean> {
-  const key = Deno.env.get("EVOLUTION_KEY") ?? "";
+  // Jarbas tem token próprio; EVOLUTION_KEY fica com o token da fila (maia-express).
+  const key = Deno.env.get("JARBAS_EVOLUTION_KEY") ?? Deno.env.get("EVOLUTION_KEY") ?? "";
   if (!key) {
     console.warn("alertCleiton: EVOLUTION_KEY ausente — alerta não enviado:", text.slice(0, 80));
     return false;
